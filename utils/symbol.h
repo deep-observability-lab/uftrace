@@ -93,6 +93,7 @@ struct uftrace_mmap {
 	char prot[4];
 	uint32_t len;
 	char build_id[BUILD_ID_STR_SIZE];
+	void *handle; /* for dlopen() */
 	char libname[];
 };
 
@@ -128,7 +129,12 @@ struct uftrace_sym_info {
 };
 
 #define for_each_map(sym_info, map)                                                                \
-	for ((map) = (sym_info)->maps; (map) != NULL; (map) = (map)->next)
+	for (({                                                                                    \
+		     (map) = (sym_info)->maps;                                                     \
+		     read_memory_barrier();                                                        \
+	     });                                                                                   \
+                                                                                                   \
+	     (map) != NULL; (map) = (map)->next)
 
 /* addr should be from fstack or something other than rstack (rec) */
 static inline bool is_kernel_address(struct uftrace_sym_info *sinfo, uint64_t addr)
@@ -152,8 +158,6 @@ struct uftrace_symbol *find_sym(struct uftrace_symtab *symtab, uint64_t addr);
 struct uftrace_symbol *find_symname(struct uftrace_symtab *symtab, const char *name);
 void print_symtab(struct uftrace_symtab *symtab);
 
-int arch_load_dynsymtab_noplt(struct uftrace_symtab *dsymtab, struct uftrace_elf_data *elf,
-			      unsigned long offset, unsigned long flags);
 int load_elf_dynsymtab(struct uftrace_symtab *dsymtab, struct uftrace_elf_data *elf,
 		       unsigned long offset, unsigned long flags);
 

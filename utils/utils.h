@@ -51,6 +51,8 @@
 #define NSEC_PER_SEC 1000000000
 #define NSEC_PER_MSEC 1000000
 
+#define UFTRACE_SHMEM_PERMISSION_MODE 0700
+
 #define BUG_REPORT_MSG "Please report this bug to https://github.com/namhyung/uftrace/issues.\n\n"
 
 extern int debug;
@@ -366,6 +368,7 @@ void print_time_unit(uint64_t delta_nsec);
 void print_diff_percent(uint64_t base_nsec, uint64_t delta_nsec);
 void print_diff_time_unit(uint64_t base_nsec, uint64_t pair_nsec);
 void print_diff_count(uint64_t base, uint64_t pair);
+void print_diff_percent_point(double base, double pair);
 
 char *setup_pager(void);
 void start_pager(char *pager);

@@ -116,12 +116,11 @@ static unsigned long __maybe_unused mcount_watchpoints;
 /* address of function will be called when a function returns */
 unsigned long mcount_return_fn;
 
+/* address of function will be called when a PLT function returns */
+unsigned long plthook_return_fn;
+
 /* do not hook return address and inject EXIT record between functions */
 bool mcount_estimate_return;
-
-__weak void dynamic_return(void)
-{
-}
 
 /* list of watch points (of global variables) */
 static LIST_HEAD(mcount_watch_list);
@@ -391,23 +390,18 @@ static void mcount_signal_finish(void)
 	}
 }
 
-static void mcount_filter_init(struct uftrace_filter_setting *filter_setting, bool force)
+struct uftrace_triggers_info *mcount_trigger_init(struct uftrace_filter_setting *filter_setting)
 {
+	struct uftrace_triggers_info *triggers;
 	char *filter_str = getenv("UFTRACE_FILTER");
 	char *trigger_str = getenv("UFTRACE_TRIGGER");
 	char *argument_str = getenv("UFTRACE_ARGUMENT");
 	char *retval_str = getenv("UFTRACE_RETVAL");
 	char *autoargs_str = getenv("UFTRACE_AUTO_ARGS");
+	char *patch_str = getenv("UFTRACE_PATCH");
 	char *caller_str = getenv("UFTRACE_CALLER");
 	char *loc_str = getenv("UFTRACE_LOCATION");
 	bool needs_debug_info = false;
-
-	filter_setting->lp64 = host_is_lp64();
-	filter_setting->arch = host_cpu_arch();
-
-	load_module_symtabs(&mcount_sym_info);
-
-	mcount_signal_init(getenv("UFTRACE_SIGNAL"), filter_setting);
 
 	/* setup auto-args only if argument/return value is used */
 	if (argument_str || retval_str || autoargs_str ||
@@ -422,27 +416,29 @@ static void mcount_filter_init(struct uftrace_filter_setting *filter_setting, bo
 	/* use debug info if available */
 	if (needs_debug_info) {
 		prepare_debug_info(&mcount_sym_info, filter_setting->ptype, argument_str,
-				   retval_str, !!autoargs_str, force);
+				   retval_str, !!autoargs_str, !!patch_str);
 		save_debug_info(&mcount_sym_info, mcount_sym_info.dirname);
 	}
 
-	mcount_triggers = xmalloc(sizeof(*mcount_triggers));
-	memset(mcount_triggers, 0, sizeof(*mcount_triggers));
-	mcount_triggers->root = RB_ROOT;
-	uftrace_setup_filter(filter_str, &mcount_sym_info, mcount_triggers, filter_setting);
-	uftrace_setup_trigger(trigger_str, &mcount_sym_info, mcount_triggers, filter_setting);
-	uftrace_setup_argument(argument_str, &mcount_sym_info, mcount_triggers, filter_setting);
-	uftrace_setup_retval(retval_str, &mcount_sym_info, mcount_triggers, filter_setting);
+	if (!filter_str && !trigger_str && !argument_str && !retval_str && !autoargs_str &&
+	    !caller_str && !loc_str)
+		return NULL;
 
-	if (needs_debug_info) {
-		uftrace_setup_loc_filter(loc_str, &mcount_sym_info, mcount_triggers,
-					 filter_setting);
-	}
+	triggers = xzalloc(sizeof(*triggers));
+	triggers->root = RB_ROOT;
 
-	if (caller_str) {
-		uftrace_setup_caller_filter(caller_str, &mcount_sym_info, mcount_triggers,
-					    filter_setting);
-	}
+	filter_setting->auto_args = false;
+
+	uftrace_setup_filter(filter_str, &mcount_sym_info, triggers, filter_setting);
+	uftrace_setup_trigger(trigger_str, &mcount_sym_info, triggers, filter_setting);
+	uftrace_setup_argument(argument_str, &mcount_sym_info, triggers, filter_setting);
+	uftrace_setup_retval(retval_str, &mcount_sym_info, triggers, filter_setting);
+
+	if (needs_debug_info)
+		uftrace_setup_loc_filter(loc_str, &mcount_sym_info, triggers, filter_setting);
+
+	if (caller_str)
+		uftrace_setup_caller_filter(caller_str, &mcount_sym_info, triggers, filter_setting);
 
 	if (autoargs_str) {
 		char *autoarg = ".";
@@ -453,8 +449,27 @@ static void mcount_filter_init(struct uftrace_filter_setting *filter_setting, bo
 
 		filter_setting->auto_args = true;
 
-		uftrace_setup_argument(autoarg, &mcount_sym_info, mcount_triggers, filter_setting);
-		uftrace_setup_retval(autoret, &mcount_sym_info, mcount_triggers, filter_setting);
+		uftrace_setup_argument(autoarg, &mcount_sym_info, triggers, filter_setting);
+		uftrace_setup_retval(autoret, &mcount_sym_info, triggers, filter_setting);
+	}
+
+	return triggers;
+}
+
+static void mcount_filter_init(struct uftrace_filter_setting *filter_setting, bool force)
+{
+	filter_setting->lp64 = host_is_lp64();
+	filter_setting->arch = host_cpu_arch();
+
+	load_module_symtabs(&mcount_sym_info);
+
+	mcount_signal_init(getenv("UFTRACE_SIGNAL"), filter_setting);
+
+	mcount_triggers = mcount_trigger_init(filter_setting);
+	if (mcount_triggers == NULL) {
+		/* make sure it has the root of triggers */
+		mcount_triggers = xzalloc(sizeof(*mcount_triggers));
+		mcount_triggers->root = RB_ROOT;
 	}
 
 	if (getenv("UFTRACE_DEPTH"))
@@ -719,7 +734,8 @@ void mtd_dtor(void *arg)
 	if (mcount_estimate_return)
 		mcount_rstack_estimate_finish(mtdp);
 
-	mcount_rstack_restore(mtdp);
+	if (!mtdp->exited)
+		mcount_rstack_restore(mtdp);
 
 	if (ARCH_CAN_RESTORE_PLTHOOK || !mcount_rstack_has_plthook(mtdp)) {
 		free(mtdp->rstack);
@@ -984,7 +1000,7 @@ static void mcount_save_filter(struct mcount_thread_data *mtdp)
 
 /* update filter state from trigger result */
 enum filter_result mcount_entry_filter_check(struct mcount_thread_data *mtdp, unsigned long child,
-					     struct uftrace_trigger *tr)
+					     struct uftrace_trigger *tr, struct mcount_regs *regs)
 {
 	int max_depth = mtdp->filter.max_depth;
 
@@ -1005,6 +1021,26 @@ enum filter_result mcount_entry_filter_check(struct mcount_thread_data *mtdp, un
 
 	pr_dbg3(" tr->flags: %x, filter mode: %d, count: %d/%d, depth: %d\n", tr->flags, tr->fmode,
 		mtdp->filter.in_count, mtdp->filter.out_count, mtdp->filter.depth);
+
+	if (tr->flags & TRIGGER_FL_FILTER && tr->cond.idx && regs) {
+		struct mcount_arg_context ctx;
+		struct uftrace_arg_spec spec = {
+			.idx = tr->cond.idx,
+			.fmt = ARG_FMT_AUTO,
+			.type = ARG_TYPE_INDEX,
+		};
+
+		mcount_memset4(&ctx, 0, sizeof(ctx));
+		ctx.regs = regs;
+		ctx.regions = &mtdp->mem_regions;
+		ctx.arch = &mtdp->arch;
+
+		mcount_arch_get_arg(&ctx, &spec);
+
+		/* keep the filter only if the condition is met */
+		if (!uftrace_eval_cond(&tr->cond, ctx.val.i))
+			tr->flags &= ~TRIGGER_FL_FILTER;
+	}
 
 	if (tr->flags & TRIGGER_FL_FILTER) {
 		if (tr->fmode == FILTER_MODE_IN)
@@ -1296,8 +1332,16 @@ void mcount_exit_filter_record(struct mcount_thread_data *mtdp, struct mcount_re
 		if (!mcount_enabled)
 			return;
 
-		if (!(rstack->flags & MCOUNT_FL_RETVAL))
+		if (rstack->flags & MCOUNT_FL_RETVAL) {
+			struct uftrace_trigger tr;
+
+			/* update args as trigger might be updated due to dlopen() */
+			uftrace_match_filter(rstack->child_ip, &mcount_triggers->root, &tr);
+			rstack->pargs = tr.pargs;
+		}
+		else {
 			retval = NULL;
+		}
 
 		if (rstack->flags & MCOUNT_FL_READ) {
 			struct uftrace_trigger tr;
@@ -1350,7 +1394,7 @@ void mcount_exit_filter_record(struct mcount_thread_data *mtdp, struct mcount_re
  */
 
 enum filter_result mcount_entry_filter_check(struct mcount_thread_data *mtdp, unsigned long child,
-					     struct uftrace_trigger *tr)
+					     struct uftrace_trigger *tr, struct mcount_regs *regs)
 {
 	if (mcount_check_rstack(mtdp))
 		return FILTER_RSTACK;
@@ -1472,7 +1516,8 @@ static int __mcount_entry(unsigned long *parent_loc, unsigned long child, struct
 	}
 
 	tr.flags = 0;
-	filtered = mcount_entry_filter_check(mtdp, child, &tr);
+	tr.cond.idx = 0;
+	filtered = mcount_entry_filter_check(mtdp, child, &tr, regs);
 	if (filtered != FILTER_IN) {
 		mcount_unguard_recursion(mtdp);
 		return -1;
@@ -1613,7 +1658,7 @@ static int __cygprof_entry(unsigned long parent, unsigned long child)
 			return -1;
 	}
 
-	filtered = mcount_entry_filter_check(mtdp, child, &tr);
+	filtered = mcount_entry_filter_check(mtdp, child, &tr, NULL);
 
 	if (unlikely(mtdp->in_exception)) {
 		unsigned long *frame_ptr;
@@ -1760,7 +1805,7 @@ static void _xray_entry(unsigned long parent, unsigned long child, struct mcount
 			return;
 	}
 
-	filtered = mcount_entry_filter_check(mtdp, child, &tr);
+	filtered = mcount_entry_filter_check(mtdp, child, &tr, NULL);
 
 	if (unlikely(mtdp->in_exception)) {
 		unsigned long *frame_ptr;
@@ -2044,9 +2089,11 @@ static __used void mcount_startup(void)
 		mcount_filter_setting.ptype = parse_filter_pattern(pattern_str);
 
 	if (patch_str)
-		mcount_return_fn = (unsigned long)dynamic_return;
+		mcount_return_fn = mcount_arch_ops.exit[UFT_ARCH_OPS_DYNAMIC];
 	else
-		mcount_return_fn = (unsigned long)mcount_return;
+		mcount_return_fn = mcount_arch_ops.exit[UFT_ARCH_OPS_MCOUNT];
+
+	plthook_return_fn = mcount_arch_ops.exit[UFT_ARCH_OPS_PLTHOOK];
 
 	mcount_filter_init(&mcount_filter_setting, !!patch_str);
 	mcount_watch_init();

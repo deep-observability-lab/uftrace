@@ -1,4 +1,4 @@
-VERSION := 0.16
+VERSION := 0.18
 
 # Makefiles suck: This macro sets a default value of $(2) for the
 # variable named by $(1), unless the variable has been set by
@@ -54,12 +54,13 @@ endif
 RM = rm -f
 INSTALL = install
 
-export ARCH CC AR LD RM srcdir objdir LDFLAGS
+export ARCH CC AR LD RM srcdir objdir CFLAGS LDFLAGS
 
 COMMON_CFLAGS := -std=gnu11 -D_GNU_SOURCE $(CFLAGS) $(CPPFLAGS)
 COMMON_CFLAGS += -iquote $(srcdir) -iquote $(objdir) -iquote $(srcdir)/arch/$(ARCH)
 COMMON_CFLAGS += -W -Wall -Wno-unused-parameter -Wno-missing-field-initializers
 COMMON_CFLAGS += -Wdeclaration-after-statement -Wstrict-prototypes
+COMMON_CFLAGS += -Wno-array-bounds
 
 COMMON_LDFLAGS := -ldl -pthread -Wl,-z,noexecstack $(LDFLAGS)
 ifeq ($(ANDROID),)
@@ -195,6 +196,7 @@ SYMBOLS_SRCS += $(srcdir)/utils/utils.c $(srcdir)/utils/debug.c
 SYMBOLS_SRCS += $(srcdir)/utils/filter.c $(srcdir)/utils/dwarf.c
 SYMBOLS_SRCS += $(srcdir)/utils/auto-args.c $(srcdir)/utils/regs.c
 SYMBOLS_SRCS += $(srcdir)/utils/argspec.c
+SYMBOLS_SRCS += $(srcdir)/arch/$(ARCH)/common.c
 SYMBOLS_SRCS += $(wildcard $(srcdir)/utils/symbol*.c)
 SYMBOLS_OBJS := $(patsubst $(srcdir)/%.c,$(objdir)/%.o,$(SYMBOLS_SRCS))
 
@@ -203,6 +205,7 @@ DBGINFO_SRCS += $(srcdir)/utils/auto-args.c $(srcdir)/utils/regs.c
 DBGINFO_SRCS += $(srcdir)/utils/utils.c $(srcdir)/utils/debug.c
 DBGINFO_SRCS += $(srcdir)/utils/argspec.c $(srcdir)/utils/rbtree.c
 DBGINFO_SRCS += $(srcdir)/utils/demangle.c $(srcdir)/utils/filter.c
+DBGINFO_SRCS += $(srcdir)/arch/$(ARCH)/common.c
 DBGINFO_SRCS += $(wildcard $(srcdir)/utils/symbol*.c)
 DBGINFO_OBJS := $(patsubst $(srcdir)/%.c,$(objdir)/%.o,$(DBGINFO_SRCS))
 
@@ -214,7 +217,7 @@ PYTHON_SRCS += $(srcdir)/utils/utils.c $(srcdir)/utils/rbtree.c $(srcdir)/utils/
 PYTHON_SRCS += $(wildcard $(srcdir)/utils/symbol-*.c)
 PYTHON_OBJS := $(patsubst $(srcdir)/%.c,$(objdir)/%.oy,$(PYTHON_SRCS))
 
-UFTRACE_ARCH_OBJS := $(objdir)/arch/$(ARCH)/uftrace.o
+UFTRACE_ARCH_OBJS := $(objdir)/arch/$(ARCH)/uftrace-arch.a
 
 UFTRACE_HDRS := $(filter-out $(srcdir)/version.h,$(wildcard $(srcdir)/*.h $(srcdir)/utils/*.h))
 UFTRACE_HDRS += $(srcdir)/libmcount/mcount.h $(wildcard $(srcdir)/arch/$(ARCH)/*.h)
@@ -239,7 +242,7 @@ LIBMCOUNT_UTILS_OBJS := $(patsubst $(srcdir)/utils/%.c,$(objdir)/libmcount/%.op,
 LIBMCOUNT_NOP_SRCS := $(srcdir)/libmcount/mcount-nop.c
 LIBMCOUNT_NOP_OBJS := $(patsubst $(srcdir)/%.c,$(objdir)/%.op,$(LIBMCOUNT_NOP_SRCS))
 
-LIBMCOUNT_ARCH_OBJS := $(objdir)/arch/$(ARCH)/mcount-entry.op
+LIBMCOUNT_ARCH_OBJS := $(objdir)/arch/$(ARCH)/mcount-arch.a
 
 COMMON_DEPS := $(objdir)/.config $(UFTRACE_HDRS)
 LIBMCOUNT_DEPS := $(COMMON_DEPS) $(srcdir)/libmcount/internal.h
@@ -427,7 +430,7 @@ pytest: all
 	@$(MAKE) -C $(srcdir)/tests TESTARG="$(TESTARG)" PYTESTARG="$(PYTESTARG)" test_python
 
 bench: all $(objdir)/misc/bench
-	@cd $(srcdir)/misc && echo && ./bench.sh $(BENCHARG)
+	@echo && misc/bench.sh $(BENCHARG)
 
 dist:
 	@git archive --prefix=uftrace-$(VERSION)/ $(VERSION_GIT) -o $(objdir)/uftrace-$(VERSION).tar

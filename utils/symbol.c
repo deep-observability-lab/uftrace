@@ -485,6 +485,7 @@ static int load_dyn_symbol(struct uftrace_symtab *dsymtab, int sym_idx, unsigned
 void sort_dynsymtab(struct uftrace_symtab *dsymtab)
 {
 	unsigned i, k;
+
 	if (dsymtab->nr_sym == 0)
 		return;
 	dsymtab->nr_alloc = dsymtab->nr_sym;
@@ -493,7 +494,8 @@ void sort_dynsymtab(struct uftrace_symtab *dsymtab)
 	/*
 	 * abuse ->sym_names[] to save original index
 	 */
-	dsymtab->sym_names = xmalloc(sizeof(*dsymtab->sym_names) * dsymtab->nr_sym);
+	dsymtab->sym_names =
+		xrealloc(dsymtab->sym_names, dsymtab->nr_sym * sizeof(*dsymtab->sym_names));
 
 	/* save current address for each symbol */
 	for (i = 0; i < dsymtab->nr_sym; i++)
@@ -513,12 +515,6 @@ void sort_dynsymtab(struct uftrace_symtab *dsymtab)
 	}
 
 	dsymtab->name_sorted = false;
-}
-
-__weak int arch_load_dynsymtab_noplt(struct uftrace_symtab *dsymtab, struct uftrace_elf_data *elf,
-				     unsigned long offset, unsigned long flags)
-{
-	return 0;
 }
 
 int load_elf_dynsymtab(struct uftrace_symtab *dsymtab, struct uftrace_elf_data *elf,
@@ -587,7 +583,8 @@ int load_elf_dynsymtab(struct uftrace_symtab *dsymtab, struct uftrace_elf_data *
 	}
 
 	if (rel_type == SHT_NULL) {
-		arch_load_dynsymtab_noplt(dsymtab, elf, offset, flags);
+		if (uftrace_arch_ops.load_dynsymtab)
+			uftrace_arch_ops.load_dynsymtab(dsymtab, elf, offset, flags);
 		goto out_sort;
 	}
 
@@ -713,7 +710,6 @@ static void merge_symtabs(struct uftrace_symtab *left, struct uftrace_symtab *ri
 static int load_dynsymtab(struct uftrace_symtab *dsymtab, const char *filename,
 			  unsigned long offset, unsigned long flags)
 {
-	struct uftrace_symtab dsymtab_noplt = {};
 	struct uftrace_elf_data elf;
 
 	if (elf_init(filename, &elf) < 0) {
@@ -723,8 +719,12 @@ static int load_dynsymtab(struct uftrace_symtab *dsymtab, const char *filename,
 
 	pr_dbg3("loading dynamic symbols from %s (offset: %#lx)\n", filename, offset);
 	load_elf_dynsymtab(dsymtab, &elf, offset, flags);
-	arch_load_dynsymtab_noplt(&dsymtab_noplt, &elf, offset, flags);
-	merge_symtabs(dsymtab, &dsymtab_noplt);
+	if (uftrace_arch_ops.load_dynsymtab) {
+		struct uftrace_symtab dsymtab_noplt = {};
+
+		uftrace_arch_ops.load_dynsymtab(&dsymtab_noplt, &elf, offset, flags);
+		merge_symtabs(dsymtab, &dsymtab_noplt);
+	}
 
 	elf_finish(&elf);
 	return dsymtab->nr_sym;

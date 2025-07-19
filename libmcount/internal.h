@@ -147,13 +147,14 @@ struct mcount_thread_data {
 	int record_idx;
 	bool recursion_marker;
 	bool in_exception;
-	bool dead;
+	bool dead; /* mtd_dtor() called */
 	bool warned;
 	unsigned long cygprof_dummy;
 	struct mcount_ret_stack *rstack;
 	void *argbuf;
 	struct filter_control filter;
 	bool enable_cached;
+	bool exited; /* pthread_exit() called */
 	struct mcount_shmem shmem;
 	struct mcount_event event[MAX_EVENT];
 	int nr_events;
@@ -236,6 +237,11 @@ static inline void mcount_watch_setup(struct mcount_thread_data *mtdp)
 static inline void mcount_watch_release(struct mcount_thread_data *mtdp)
 {
 }
+static inline struct uftrace_triggers_info *
+mcount_trigger_init(struct uftrace_filter_setting *filter_setting)
+{
+	return NULL;
+}
 #endif /* DISABLE_MCOUNT_FILTER */
 
 static inline uint64_t mcount_gettime(void)
@@ -303,11 +309,8 @@ static inline void mcount_memcpy4(void *restrict dst, const void *restrict src, 
 		*p++ = *q++;
 }
 
-extern void mcount_return(void);
-extern void dynamic_return(void);
-extern unsigned long plthook_return(void);
-
 extern unsigned long mcount_return_fn;
+extern unsigned long plthook_return_fn;
 
 extern struct mcount_thread_data *mcount_prepare(void);
 
@@ -346,7 +349,7 @@ struct plthook_special_func {
 
 struct plthook_skip_symbol {
 	const char *name;
-	void *addr;
+	int entry_idx; /* for mcount_arch_ops.entry[] */
 };
 
 struct plthook_data {
@@ -378,8 +381,6 @@ extern void mcount_setup_plthook(char *exename, bool nest_libcall);
 
 extern void setup_dynsym_indexes(struct plthook_data *pd);
 extern void destroy_dynsym_indexes(void);
-
-extern unsigned long mcount_arch_plthook_addr(struct plthook_data *pd, int idx);
 
 extern unsigned long plthook_resolver_addr;
 extern const struct plthook_skip_symbol plt_skip_syms[];
@@ -413,8 +414,8 @@ extern void mcount_arch_get_arg(struct mcount_arg_context *ctx, struct uftrace_a
 extern void mcount_arch_get_retval(struct mcount_arg_context *ctx, struct uftrace_arg_spec *spec);
 
 extern enum filter_result mcount_entry_filter_check(struct mcount_thread_data *mtdp,
-						    unsigned long child,
-						    struct uftrace_trigger *tr);
+						    unsigned long child, struct uftrace_trigger *tr,
+						    struct mcount_regs *regs);
 extern void mcount_entry_filter_record(struct mcount_thread_data *mtdp,
 				       struct mcount_ret_stack *rstack, struct uftrace_trigger *tr,
 				       struct mcount_regs *regs);
@@ -434,6 +435,7 @@ extern void save_argument(struct mcount_thread_data *mtdp, struct mcount_ret_sta
 void save_retval(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstack, long *retval);
 void save_trigger_read(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstack,
 		       enum trigger_read_type type, bool diff);
+struct uftrace_triggers_info *mcount_trigger_init(struct uftrace_filter_setting *filter_setting);
 #endif /* DISABLE_MCOUNT_FILTER */
 
 bool check_mem_region(struct mcount_arg_context *ctx, unsigned long addr);
@@ -471,5 +473,7 @@ bool mcount_is_main_executable(const char *filename, const char *exename);
 
 int agent_spawn(void);
 int agent_kill(void);
+
+void swap_triggers(struct uftrace_triggers_info **old, struct uftrace_triggers_info *new);
 
 #endif /* UFTRACE_MCOUNT_INTERNAL_H */
