@@ -415,7 +415,7 @@ static int build_fixup_filter(struct uftrace_session *s, void *arg)
 	pr_dbg("fixup for some special functions\n");
 
 	for (i = 0; i < ARRAY_SIZE(fixup_syms); i++) {
-		uftrace_setup_trigger(fixup_syms[i], &s->sym_info, &s->fixups, &setting)
+		uftrace_setup_trigger(fixup_syms[i], &s->sym_info, &s->fixups, &setting);
 	}
 	return 0;
 }
@@ -625,7 +625,7 @@ int fstack_entry(struct uftrace_task_reader *task, struct uftrace_record *rstack
 	if (sess) {
 		struct uftrace_filter *fixup;
 
-		fixup = uftrace_match_filter(addr, &sess->fixups, tr);
+		fixup = uftrace_match_filter(addr, &sess->fixups.root, tr);
 		if (unlikely(fixup)) {
 			if (!strncmp(fixup->name, "exec", 4))
 				fstack->flags |= FSTACK_FL_EXEC;
