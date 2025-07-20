@@ -625,7 +625,7 @@ int fstack_entry(struct uftrace_task_reader *task, struct uftrace_record *rstack
 	if (sess) {
 		struct uftrace_filter *fixup;
 
-		fixup = uftrace_match_filter(addr, &sess->fixups.root, tr);
+		fixup = uftrace_match_filter(addr, &sess->fixups, tr);
 		if (unlikely(fixup)) {
 			if (!strncmp(fixup->name, "exec", 4))
 				fstack->flags |= FSTACK_FL_EXEC;
