@@ -805,14 +805,16 @@ static int print_graph_rstack(struct uftrace_data *handle, struct uftrace_task_r
 		struct uftrace_fstack *fstack;
 		int rstack_depth = rstack->depth;
 		int depth;
-		struct uftrace_trigger tr = {
-			.flags = 0,
-		};
+		const struct uftrace_filter *filter = NULL;
+		enum trigger_flag flags = 0;
 		int ret;
 
-		ret = fstack_entry(task, rstack, &tr);
+		ret = fstack_entry(task, rstack, &filter);
 		if (ret < 0)
 			goto out;
+
+		if (filter)
+			flags = filter->trigger.flags; /* !0 means filter is not NULL */
 
 		/* display depth is set in fstack_entry() */
 		depth = task->display_depth;
@@ -821,11 +823,11 @@ static int print_graph_rstack(struct uftrace_data *handle, struct uftrace_task_r
 		if (opts->task_newline)
 			print_task_newline(task->tid);
 
-		if (tr.flags & TRIGGER_FL_BACKTRACE)
+		if (flags & TRIGGER_FL_BACKTRACE)
 			print_backtrace(task);
 
-		if (tr.flags & TRIGGER_FL_COLOR)
-			task->event_color = tr.color;
+		if (flags & TRIGGER_FL_COLOR)
+			task->event_color = filter->trigger.color;
 		else
 			task->event_color = DEFAULT_EVENT_COLOR;
 
@@ -856,10 +858,10 @@ static int print_graph_rstack(struct uftrace_data *handle, struct uftrace_task_r
 
 			print_field(task, fstack, NULL);
 			pr_out("%*s", depth * 2, "");
-			if (tr.flags & TRIGGER_FL_COLOR) {
-				pr_color(tr.color, "%s", symname);
+			if (flags & TRIGGER_FL_COLOR) {
+				pr_color(filter->trigger.color, "%s", symname);
 				if (*libname)
-					pr_color(tr.color, "@%s", libname);
+					pr_color(filter->trigger.color, "@%s", libname);
 				pr_out("%s%s", args, retval);
 			}
 			else {
@@ -878,10 +880,10 @@ static int print_graph_rstack(struct uftrace_data *handle, struct uftrace_task_r
 			/* function entry */
 			print_field(task, fstack, NO_TIME);
 			pr_out("%*s", depth * 2, "");
-			if (tr.flags & TRIGGER_FL_COLOR) {
-				pr_color(tr.color, "%s", symname);
+			if (flags & TRIGGER_FL_COLOR) {
+				pr_color(filter->trigger.color, "%s", symname);
 				if (*libname)
-					pr_color(tr.color, "@%s", libname);
+					pr_color(filter->trigger.color, "@%s", libname);
 				pr_out("%s {", args);
 			}
 			else {
