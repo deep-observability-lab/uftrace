@@ -890,13 +890,13 @@ void session_setup_dlopen_argspec(struct uftrace_session *sess,
 	}
 }
 
-struct uftrace_filter *session_find_filter(struct uftrace_session *sess, struct uftrace_record *rec,
-					   struct uftrace_trigger *tr)
+const struct uftrace_filter *session_find_filter(struct uftrace_session *sess,
+						 struct uftrace_record *rec)
 {
-	struct uftrace_filter *ret;
+	const struct uftrace_filter *ret;
 	struct uftrace_dlopen_list *udl;
 
-	ret = uftrace_match_filter(rec->addr, &sess->filter_info, tr);
+	ret = uftrace_match_filter(&sess->filter_info, rec->addr);
 	if (ret)
 		return ret;
 
@@ -904,7 +904,7 @@ struct uftrace_filter *session_find_filter(struct uftrace_session *sess, struct 
 	if (udl == NULL)
 		return NULL;
 
-	return uftrace_match_filter(rec->addr, &udl->filter_info, tr);
+	return uftrace_match_filter(&udl->filter_info, rec->addr);
 }
 
 #ifdef UNIT_TEST
