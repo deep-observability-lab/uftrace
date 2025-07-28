@@ -415,7 +415,7 @@ static int build_fixup_filter(struct uftrace_session *s, void *arg)
 	pr_dbg("fixup for some special functions\n");
 
 	for (i = 0; i < ARRAY_SIZE(fixup_syms); i++) {
-		uftrace_setup_trigger(fixup_syms[i], &s->sym_info, &s->fixups, &setting);
+		uftrace_setup_trigger(fixup_syms[i], &s->sym_info, &s->fixups, &setting)
 	}
 	return 0;
 }
