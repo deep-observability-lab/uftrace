@@ -890,13 +890,13 @@ void session_setup_dlopen_argspec(struct uftrace_session *sess,
 	}
 }
 
-const struct uftrace_filter *session_find_filter(struct uftrace_session *sess,
-						 struct uftrace_record *rec)
+struct uftrace_filter *session_find_filter(struct uftrace_session *sess, struct uftrace_record *rec,
+					   struct uftrace_trigger *tr)
 {
-	const struct uftrace_filter *ret;
+	struct uftrace_filter *ret;
 	struct uftrace_dlopen_list *udl;
 
-	ret = uftrace_match_filter(&sess->filter_info, rec->addr);
+	ret = uftrace_match_filter(rec->addr, &sess->filter_info, tr);
 	if (ret)
 		return ret;
 
@@ -904,7 +904,7 @@ const struct uftrace_filter *session_find_filter(struct uftrace_session *sess,
 	if (udl == NULL)
 		return NULL;
 
-	return uftrace_match_filter(&udl->filter_info, rec->addr);
+	return uftrace_match_filter(rec->addr, &udl->filter_info, tr);
 }
 
 #ifdef UNIT_TEST
@@ -1415,6 +1415,7 @@ TEST_CASE(session_autoarg_dlopen)
 	session_setup_dlopen_argspec(sess, &setting, true);
 
 #ifdef HAVE_LIBDW
+<<<<<<< HEAD
 	{
 		struct uftrace_filter *filter;
 		struct uftrace_trigger tr = {};
@@ -1427,6 +1428,15 @@ TEST_CASE(session_autoarg_dlopen)
 		TEST_NE(filter->trigger.pargs, NULL);
 		TEST_STREQ(filter->name, "foo");
 	}
+=======
+	pr_dbg("try to find a filter for the dlopen address\n");
+	filter = session_find_filter(sess, &rec, &tr);
+
+	TEST_NE(filter, NULL);
+	TEST_EQ(filter->trigger.flags, TRIGGER_FL_ARGUMENT | TRIGGER_FL_RETVAL);
+	TEST_NE(filter->trigger.pargs, NULL);
+	TEST_STREQ(filter->name, "foo");
+>>>>>>> c98fc4c7 (Revert "filter: Use struct uftrace_filter for match result")
 #endif /* HAVE_LIBDW */
 
 	delete_sessions(&test_sessions);
