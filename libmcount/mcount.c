@@ -119,6 +119,7 @@ unsigned long mcount_return_fn;
 /* do not hook return address and inject EXIT record between functions */
 bool mcount_estimate_return;
 
+
 __weak void dynamic_return(void)
 {
 }
@@ -340,6 +341,7 @@ static int parse_sigspec(char *spec, struct uftrace_filter_setting *setting)
 	*pos = '@';
 
 	tmp = NULL;
+	// printf(" parse_sigspec =================================== \n") ; 
 	if (setup_trigger_action(spec, &tr, &tmp, TRIGGER_FL_SIGNAL, setting) < 0)
 		return -1;
 
@@ -429,6 +431,7 @@ static void mcount_filter_init(struct uftrace_filter_setting *filter_setting, bo
 	mcount_triggers = xmalloc(sizeof(*mcount_triggers));
 	memset(mcount_triggers, 0, sizeof(*mcount_triggers));
 	mcount_triggers->root = RB_ROOT;
+	// printf(" in mcount_filter_init \n ") ; 
 	uftrace_setup_filter(filter_str, &mcount_sym_info, mcount_triggers, filter_setting);
 	uftrace_setup_trigger(trigger_str, &mcount_sym_info, mcount_triggers, filter_setting);
 	uftrace_setup_argument(argument_str, &mcount_sym_info, mcount_triggers, filter_setting);
@@ -472,11 +475,13 @@ static void mcount_filter_setup(struct mcount_thread_data *mtdp)
 	mtdp->filter.size = mcount_min_size;
 	mtdp->enable_cached = mcount_enabled;
 	mtdp->argbuf = xmalloc(mcount_rstack_max * ARGBUF_SIZE);
+	// printf("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& seting up mcount filter %p\n", mtdp->argbuf) ; 
 	INIT_LIST_HEAD(&mtdp->pmu_fds);
 }
 
 static void mcount_filter_release(struct mcount_thread_data *mtdp)
 {
+	// printf("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& releasing mcount filter \n") ; 
 	free(mtdp->argbuf);
 	mtdp->argbuf = NULL;
 	finish_pmu_event(mtdp);
@@ -789,6 +794,7 @@ static const struct {
 
 static void segv_handler(int sig, siginfo_t *si, void *ctx)
 {
+	printf("1 ------------------hey godddd ------------------------\n");
 	struct mcount_thread_data *mtdp;
 	struct mcount_ret_stack *rstack;
 	int idx;
@@ -809,6 +815,7 @@ static void segv_handler(int sig, siginfo_t *si, void *ctx)
 	idx = mtdp->idx - 1;
 	/* flush current rstack on crash */
 	rstack = &mtdp->rstack[idx];
+	printf("9 --------------tttttttttttttt-----------------------\n"); 
 	record_trace_data(mtdp, rstack, NULL);
 
 	/* print backtrace */
@@ -882,7 +889,7 @@ struct mcount_thread_data *mcount_prepare(void)
 	static pthread_once_t once_control = PTHREAD_ONCE_INIT;
 	struct mcount_thread_data *mtdp = &mtd;
 	struct uftrace_msg_task tmsg;
-
+	// printf("============================ mtd %p\n",mtdp); 
 	if (unlikely(mcount_should_stop()))
 		return NULL;
 
@@ -903,7 +910,7 @@ struct mcount_thread_data *mcount_prepare(void)
 
 	pthread_once(&once_control, mcount_init_file);
 	prepare_shmem_buffer(mtdp);
-
+	// printf("$$$$$$$$$$$$$$$$$$$$$$$$$$ss$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n"); 
 	pthread_setspecific(mtd_key, mtdp);
 
 	/* time should be get after session message sent */
@@ -941,6 +948,7 @@ static bool mcount_check_rstack(struct mcount_thread_data *mtdp)
 				mtdp->idx);
 			/* flush current rstack */
 			rstack = &mtdp->rstack[mcount_rstack_max - 1];
+			printf("8 --------------tttttttttttttt-----------------------\n"); 
 			record_trace_data(mtdp, rstack, NULL);
 			mtdp->warned = true;
 		}
@@ -956,6 +964,8 @@ static bool mcount_check_rstack(struct mcount_thread_data *mtdp)
  */
 
 extern void *get_argbuf(struct mcount_thread_data *, struct mcount_ret_stack *);
+
+
 
 /**
  * mcount_get_filter_mode - compute the filter mode from the filter count
@@ -1002,6 +1012,10 @@ enum filter_result mcount_entry_filter_check(struct mcount_thread_data *mtdp, un
 		return FILTER_OUT;
 
 	uftrace_match_filter(child, &mcount_triggers->root, tr);
+
+
+	// printf(" tr->flags: %x, filter mode: %d, count: %d/%d, depth: %d\n", tr->flags, tr->fmode,
+		// mtdp->filter.in_count, mtdp->filter.out_count, mtdp->filter.depth);
 
 	pr_dbg3(" tr->flags: %x, filter mode: %d, count: %d/%d, depth: %d\n", tr->flags, tr->fmode,
 		mtdp->filter.in_count, mtdp->filter.out_count, mtdp->filter.depth);
@@ -1063,6 +1077,7 @@ static int script_save_context(struct script_context *sc_ctx, struct mcount_thre
 			       struct mcount_ret_stack *rstack, char *symname, bool has_arg_retval,
 			       struct list_head *pargs)
 {
+	
 	if (!script_match_filter(symname))
 		return -1;
 
@@ -1130,6 +1145,9 @@ skip:
 	symbol_putname(sym, symname);
 }
 
+
+
+
 /**
  * filter_save_to_rstack - save current filter state to rstack
  * @mtdp - thread data
@@ -1145,6 +1163,41 @@ static void filter_save_to_rstack(struct mcount_thread_data *mtdp, struct mcount
 	rstack->filter_size = mtdp->filter.saved_size;
 }
 
+
+// /* Dump the argbuf for a single rstack frame.
+//  * Expected layout: [u32 total_size][data...]
+//  * If the first field is a length-prefixed string/blob (u16 slen + bytes),
+//  * we show that too.
+//  */
+// static void dump_argbuf_for_rstackk(struct mcount_thread_data *mtdp,
+//                                    struct mcount_ret_stack *rs)
+// {
+	
+//     void *hdr = get_argbuf(mtdp, rs);  /* points to the u32 total_size */
+//     if (!hdr) {
+//         printf("argbuf: NULL (no arguments recorded)\n");
+//         return;
+//     }
+
+//     unsigned total = (unsigned*)hdr;  /* total bytes starting at hdr (including this u32) */
+// 	unsigned short sizeofthis = (unsigned short *)(hdr + sizeof(unsigned)); 
+//     printf("argbuf hdr=%p total=%u sizeof this one %d\n", (void *)hdr, total, sizeofthis);
+	
+// 	printf("%s\n", hdr+sizeof(unsigned short)+sizeof(unsigned)); 
+//     if (total < sizeof(unsigned) || total > ARGBUF_SIZE) {
+// 		printf("argbuf: suspicious total size (%u)\n", total);
+//         return;
+//     }
+	
+//     unsigned char *data = (unsigned char *)(hdr + 1);
+//     unsigned data_len = total - sizeof(unsigned);
+	
+// } 
+
+
+
+
+
 void mcount_entry_filter_record(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstack,
 				struct uftrace_trigger *tr, struct mcount_regs *regs)
 {
@@ -1155,11 +1208,11 @@ void mcount_entry_filter_record(struct mcount_thread_data *mtdp, struct mcount_r
 		rstack->flags |= MCOUNT_FL_NORECORD;
 
 	filter_save_to_rstack(mtdp, rstack);
-
+	// dump_argbuf_for_rstackk(mtdp,rstack ); 
 #define FLAGS_TO_CHECK                                                                             \
 	(TRIGGER_FL_FILTER | TRIGGER_FL_RETVAL | TRIGGER_FL_TRACE | TRIGGER_FL_FINISH |            \
 	 TRIGGER_FL_CALLER)
-
+	// printf("----------- 11 ^^^^^^^^^^^^^^^^^^^^^^^^^^\n"); 
 	if (tr->flags & FLAGS_TO_CHECK) {
 		if (tr->flags & TRIGGER_FL_FILTER) {
 			if (tr->fmode == FILTER_MODE_IN)
@@ -1181,6 +1234,7 @@ void mcount_entry_filter_record(struct mcount_thread_data *mtdp, struct mcount_r
 			rstack->flags |= MCOUNT_FL_CALLER;
 
 		if (tr->flags & TRIGGER_FL_FINISH) {
+			printf	("7 --------------tttttttttttttt-----------------------\n"); 
 			record_trace_data(mtdp, rstack, NULL);
 			mcount_finish_trigger();
 			return;
@@ -1200,12 +1254,23 @@ void mcount_entry_filter_record(struct mcount_thread_data *mtdp, struct mcount_r
 			 * already handled in record_trace_data() on exit path
 			 * using the MCOUNT_FL_DISABLED flag.
 			 */
-			if (unlikely(mtdp->enable_cached))
+			if (unlikely(mtdp->enable_cached)){
+				
 				record_trace_data(mtdp, rstack, NULL);
+			}
 		}
 		else {
-			if (tr->flags & TRIGGER_FL_ARGUMENT)
+			if (tr->flags & TRIGGER_FL_ARGUMENT){
+				// printf("6 --------------tttttttttttttt-----------------------\n"); 
 				save_argument(mtdp, rstack, tr->pargs, regs);
+				// dump_argbuf_for_rstackk(mtdp,rstack ); 
+				
+				// unsigned gsize ; 
+				// void *hargbuf = get_argbuf(mtdp, rstack);
+				// memcpy(&gsize , hargbuf, sizeof(unsigned));
+				// printf("------------------------size %p\n", hargbuf+sizeof(unsigned)+2);
+				// it was correct here  
+			}
 			if (tr->flags & TRIGGER_FL_READ) {
 				save_trigger_read(mtdp, rstack, tr->read, false);
 				rstack->flags |= MCOUNT_FL_READ;
@@ -1225,8 +1290,11 @@ void mcount_entry_filter_record(struct mcount_thread_data *mtdp, struct mcount_r
 					if (mtdp->event[i].idx == ASYNC_IDX)
 						flush = true;
 
-				if (flush)
+				if (flush){
+					printf("5 --------------tttttttttttttt-----------------------\n"); 
 					record_trace_data(mtdp, rstack, NULL);
+
+				}
 			}
 		}
 
@@ -1250,6 +1318,67 @@ void mcount_entry_filter_record(struct mcount_thread_data *mtdp, struct mcount_r
 #undef FLAGS_TO_CHECK
 }
 
+
+// /* Dump the argbuf for a single rstack frame.
+//  * Expected layout: [u32 total_size][data...]
+//  * If the first field is a length-prefixed string/blob (u16 slen + bytes),
+//  * we show that too.
+//  */
+// static void dump_argbuf_for_rstack(struct mcount_thread_data *mtdp,
+//                                    struct mcount_ret_stack *rs)
+// {
+//     unsigned *hdr = get_argbuf(mtdp, rs);  /* points to the u32 total_size */
+//     if (!hdr) {
+//         printf("argbuf: NULL (no arguments recorded)\n");
+//         return;
+//     }
+
+//     unsigned total = *hdr;  /* total bytes starting at hdr (including this u32) */
+//     printf("argbuf hdr=%p total=%u (ARGBUF_SIZE=%u)\n", (void *)hdr, total, (unsigned)ARGBUF_SIZE);
+
+//     if (total < sizeof(unsigned) || total > ARGBUF_SIZE) {
+//         printf("argbuf: suspicious total size (%u)\n", total);
+//         return;
+//     }
+// 	printf("%s\n", hdr+2); 
+//     unsigned char *data = (unsigned char *)(hdr + 1);
+//     unsigned data_len = total - sizeof(unsigned);
+
+//     // /* Hex dump a small prefix so we can see what’s really in there */
+//     // unsigned to_dump = data_len < 128 ? data_len : 128;
+//     // printf("argbuf hex (%u of %u):", to_dump, data_len);
+//     // for (unsigned i = 0; i < to_dump; i++) {
+//     //     printf(" %02x", data[i]);
+//     // }
+//     // printf("\n");
+
+//     /* Try to interpret the *first* field as u16 length + bytes (your struct dump) */
+//     // if (data_len >= 2) {
+//     //     uint16_t slen;
+//     //     memcpy(&slen, data, 2);
+
+//     //     printf("first field slen=%u", (unsigned)slen);
+//     //     if (slen <= data_len - 2) {
+//     //         printf(", text=\"");
+//     //         for (unsigned i = 0; i < slen; i++) {
+//     //             unsigned char c = data[2 + i];
+//     //             /* escape a few things so the line stays readable */
+//     //             if      (c == '\n') printf("\\n");
+//     //             else if (c == '\t') printf("\\t");
+//     //             else if (c == '"')  printf("\\\"");
+//     //             else if (c == '\\') printf("\\\\");
+//     //             else if (c >= 32 && c < 127) putchar(c);
+//     //             else printf("\\x%02x", c);
+//     //         }
+//     //         printf("\"\n");
+//     //     } else {
+//     //         printf(" (slen exceeds available bytes: %u > %u)\n",
+//     //                (unsigned)slen, data_len - 2);
+//     //     }
+//     // }
+// }
+
+
 /**
  * filter_restore_from_rstack - restore filters to their value at function entry
  * @mtdp - thread data
@@ -1263,15 +1392,47 @@ static void filter_restore_from_rstack(struct mcount_thread_data *mtdp,
 	mtdp->filter.size = rstack->filter_size;
 }
 
+
+// /* Dump the argbuf for a single rstack frame.
+//  * Expected layout: [u32 total_size][data...]
+//  * If the first field is a length-prefixed string/blob (u16 slen + bytes),
+//  * we show that too.
+//  */
+// static void dump_argbuf_for_rstackk(struct mcount_thread_data *mtdp,
+//                                    struct mcount_ret_stack *rs)
+// {
+	
+//     void *hdr = get_argbuf(mtdp, rs);  /* points to the u32 total_size */
+//     if (!hdr) {
+//         printf("argbuf: NULL (no arguments recorded)\n");
+//         return;
+//     }
+
+//     unsigned total = (unsigned*)hdr;  /* total bytes starting at hdr (including this u32) */
+// 	unsigned short sizeofthis = (unsigned short *)(hdr + sizeof(unsigned)); 
+//     printf("argbuf hdr=%p total=%u sizeof this one %d\n", (void *)hdr, total, sizeofthis);
+	
+// 	printf("%s\n", hdr+sizeof(unsigned short)+sizeof(unsigned)); 
+//     if (total < sizeof(unsigned) || total > ARGBUF_SIZE) {
+// 		printf("argbuf: suspicious total size (%u)\n", total);
+//         return;
+//     }
+	
+//     unsigned char *data = (unsigned char *)(hdr + 1);
+//     unsigned data_len = total - sizeof(unsigned);
+	
+// }   
+
 void mcount_exit_filter_record(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstack,
-			       long *retval)
-{
+	long *retval)
+	{
 	uint64_t time_filter = mtdp->filter.time;
-
+	
 	if (time_filter == FILTER_NO_TIME)
-		time_filter = mcount_threshold;
-
+	time_filter = mcount_threshold;
+	
 	pr_dbg3("<%d> exit  %lx\n", mtdp->idx, rstack->child_ip);
+	// dump_argbuf_for_rstack(mtdp, rstack);
 
 #define FLAGS_TO_CHECK (MCOUNT_FL_FILTERED | MCOUNT_FL_NOTRACE | MCOUNT_FL_RECOVER)
 
@@ -1286,9 +1447,8 @@ void mcount_exit_filter_record(struct mcount_thread_data *mtdp, struct mcount_re
 	}
 
 #undef FLAGS_TO_CHECK
-
 	filter_restore_from_rstack(mtdp, rstack);
-
+	
 	if (!(rstack->flags & MCOUNT_FL_NORECORD)) {
 		if (mtdp->record_idx > 0)
 			mtdp->record_idx--;
@@ -1301,20 +1461,24 @@ void mcount_exit_filter_record(struct mcount_thread_data *mtdp, struct mcount_re
 
 		if (rstack->flags & MCOUNT_FL_READ) {
 			struct uftrace_trigger tr;
-
 			/* there's a possibility of overwriting by return value */
+			
 			uftrace_match_filter(rstack->child_ip, &mcount_triggers->root, &tr);
 			save_trigger_read(mtdp, rstack, tr.read, true);
 		}
 
-		if (mcount_watchpoints)
+		if (mcount_watchpoints){
 			save_watchpoint(mtdp, rstack, mcount_watchpoints);
-
+		}
+		
 		if (((rstack->end_time - rstack->start_time > time_filter) &&
 		     (!mcount_triggers->caller_count || rstack->flags & MCOUNT_FL_CALLER)) ||
 		    rstack->flags & (MCOUNT_FL_WRITTEN | MCOUNT_FL_TRACE)) {
+			
+			// printf("4 -------------- check for prev before ----- %p ---\n", rstack); 
 			if (record_trace_data(mtdp, rstack, retval) < 0)
 				pr_err("error during record");
+			
 		}
 		else if (mtdp->nr_events) {
 			bool flush = false;
@@ -1332,16 +1496,19 @@ void mcount_exit_filter_record(struct mcount_thread_data *mtdp, struct mcount_re
 					k = i + 1;
 			}
 
-			if (flush)
+			if (flush){
+				printf("3 --------------tttttttttttttt-----------------------\n"); 
 				record_trace_data(mtdp, rstack, retval);
+			}
 			else
 				mtdp->nr_events = k; /* invalidate sync events */
 		}
-
+		
 		/* script hooking for function exit */
 		if (SCRIPT_ENABLED && script_str)
 			script_hook_exit(mtdp, rstack);
 	}
+	
 }
 
 #else /* DISABLE_MCOUNT_FILTER */
@@ -1364,6 +1531,7 @@ enum filter_result mcount_entry_filter_check(struct mcount_thread_data *mtdp, un
 void mcount_entry_filter_record(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstack,
 				struct uftrace_trigger *tr, struct mcount_regs *regs)
 {
+	printf("----------- 22 ^^^^^^^^^^^^^^^^^^^^^^^^^^"); 
 	mtdp->record_idx++;
 }
 
@@ -1374,6 +1542,7 @@ void mcount_exit_filter_record(struct mcount_thread_data *mtdp, struct mcount_re
 
 	if (rstack->end_time - rstack->start_time > mcount_threshold ||
 	    rstack->flags & MCOUNT_FL_WRITTEN) {
+		printf("2 --------------tttttttttttttt-----------------------\n"); 
 		if (record_trace_data(mtdp, rstack, NULL) < 0)
 			pr_err("error during record");
 	}
@@ -1454,6 +1623,7 @@ void mcount_rstack_inject_return(struct mcount_thread_data *mtdp, unsigned long 
 
 static int __mcount_entry(unsigned long *parent_loc, unsigned long child, struct mcount_regs *regs)
 {
+
 	enum filter_result filtered;
 	struct mcount_thread_data *mtdp;
 	struct mcount_ret_stack *rstack;
@@ -1521,12 +1691,20 @@ static int __mcount_entry(unsigned long *parent_loc, unsigned long child, struct
 	}
 
 	mcount_entry_filter_record(mtdp, rstack, &tr, regs);
+	// ok 
+	// printf("in mcount_entry (((((((((((((((((((((((((( %p ))))))))))))))))))))))))))\n",mtdp->argbuf); 
 	mcount_unguard_recursion(mtdp);
+	// unsigned gsize ; 
+	// void *hargbuf = get_argbuf(mtdp, rstack);
+	// memcpy(&gsize , hargbuf, sizeof(unsigned));
+	// printf("---------qqmcount entry ---------------size %s\n", hargbuf+sizeof(unsigned)+2);
+
 	return 0;
 }
 
 int mcount_entry(unsigned long *parent_loc, unsigned long child, struct mcount_regs *regs)
 {
+	// printf( "----------------------- in mcount_entry  --------------\n");
 	int saved_errno = errno;
 	int ret = __mcount_entry(parent_loc, child, regs);
 
@@ -1534,49 +1712,55 @@ int mcount_entry(unsigned long *parent_loc, unsigned long child, struct mcount_r
 	return ret;
 }
 
+
+
 static unsigned long __mcount_exit(long *retval)
 {
 	struct mcount_thread_data *mtdp;
 	struct mcount_ret_stack *rstack;
 	unsigned long *ret_loc;
 	unsigned long retaddr;
-
+	
 	mtdp = get_thread_data();
 	ASSERT(mtdp != NULL);
 	ASSERT(!mtdp->dead);
 
 	/*
-	 * it's only called when mcount_entry() was succeeded and
-	 * no need to check recursion here.  But still needs to
-	 * prevent recursion during this call.
-	 */
+	* it's only called when mcount_entry() was succeeded and
+	* no need to check recursion here.  But still needs to
+	* prevent recursion during this call.
+	*/
 	__mcount_guard_recursion(mtdp);
 
 	rstack = &mtdp->rstack[mtdp->idx - 1];
-
 	rstack->end_time = mcount_gettime();
+	// printf(" 2.1 ------------------hey godddd ------------------------\n");
+	// dump_argbuf_for_rstackk(mtdp, rstack);
+	
 	mcount_exit_filter_record(mtdp, rstack, retval);
 
 	ret_loc = rstack->parent_loc;
 	retaddr = rstack->parent_ip;
-
+	
 	/* re-hijack return address of parent */
 	if (mcount_auto_recover)
 		mcount_auto_rehook(mtdp);
-
+	
 	__mcount_unguard_recursion(mtdp);
-
+	
 	if (unlikely(mcount_should_stop())) {
 		mtd_dtor(mtdp);
 		/*
-		 * mtd_dtor() will free rstack but current ret_addr
-		 * might be plthook_return() when it was a tail call.
-		 * Reload the return address after mtd_dtor() restored
-		 * all the parent locations.
-		 */
+		* mtd_dtor() will free rstack but current ret_addr
+		* might be plthook_return() when it was a tail call.
+		* Reload the return address after mtd_dtor() restored
+		* all the parent locations.
+		*/
 		retaddr = *ret_loc;
 	}
-
+	// printf(" 2.2 ------------------hey godddd ------------------------\n");
+	// dump_argbuf_for_rstackk(mtdp, rstack);
+	
 	compiler_barrier();
 
 	mtdp->idx--;
@@ -1594,6 +1778,7 @@ unsigned long mcount_exit(long *retval)
 
 static int __cygprof_entry(unsigned long parent, unsigned long child)
 {
+	printf(" 3 ------------------hey godddd ------------------------\n");
 	enum filter_result filtered;
 	struct mcount_thread_data *mtdp;
 	struct mcount_ret_stack *rstack;
@@ -1669,6 +1854,7 @@ static int __cygprof_entry(unsigned long parent, unsigned long child)
 	}
 
 	mcount_entry_filter_record(mtdp, rstack, &tr, NULL);
+	printf( "----------------------- in __cygprof_entry --------------\n");
 	mcount_unguard_recursion(mtdp);
 	return 0;
 }
@@ -1689,6 +1875,7 @@ static void warn_unpaired_cygprof(void)
 
 static void __cygprof_exit(unsigned long parent, unsigned long child)
 {
+	printf(" 4 ------------------hey godddd ------------------------\n");
 	struct mcount_thread_data *mtdp;
 	struct mcount_ret_stack *rstack;
 
@@ -1741,6 +1928,7 @@ static void cygprof_exit(unsigned long parent, unsigned long child)
 
 static void _xray_entry(unsigned long parent, unsigned long child, struct mcount_regs *regs)
 {
+	printf("5 ------------------hey godddd ------------------------\n");
 	enum filter_result filtered;
 	struct mcount_thread_data *mtdp;
 	struct mcount_ret_stack *rstack;
@@ -1804,6 +1992,7 @@ static void _xray_entry(unsigned long parent, unsigned long child, struct mcount
 	}
 
 	mcount_entry_filter_record(mtdp, rstack, &tr, regs);
+	printf( "----------------------- in _xray_entry --------------\n");
 	mcount_unguard_recursion(mtdp);
 }
 
@@ -1817,6 +2006,7 @@ void xray_entry(unsigned long parent, unsigned long child, struct mcount_regs *r
 
 static void _xray_exit(long *retval)
 {
+	printf("- 6 -----------------hey godddd ------------------------\n");
 	struct mcount_thread_data *mtdp;
 	struct mcount_ret_stack *rstack;
 
@@ -1878,6 +2068,7 @@ static void atfork_prepare_handler(void)
 
 static void atfork_child_handler(void)
 {
+	printf("7 ------------------hey godddd ------------------------\n");
 	struct mcount_thread_data *mtdp;
 	struct uftrace_msg_task tmsg = {
 		.time = mcount_gettime(),
@@ -2042,12 +2233,14 @@ static __used void mcount_startup(void)
 
 	if (pattern_str)
 		mcount_filter_setting.ptype = parse_filter_pattern(pattern_str);
-
-	if (patch_str)
+	
+	if (patch_str){
 		mcount_return_fn = (unsigned long)dynamic_return;
-	else
+		// printf("######################################### dynamic_return\n"); 
+	}
+	else{
 		mcount_return_fn = (unsigned long)mcount_return;
-
+	}
 	mcount_filter_init(&mcount_filter_setting, !!patch_str);
 	mcount_watch_init();
 
@@ -2149,6 +2342,7 @@ void __visible_default _mcleanup(void)
  */
 void __visible_default mcount_restore(void)
 {
+	printf("9------------------hey godddd ------------------------\n");
 	struct mcount_thread_data *mtdp;
 
 	mtdp = get_thread_data();
@@ -2164,6 +2358,7 @@ void __visible_default mcount_restore(void)
  */
 void __visible_default mcount_reset(void)
 {
+	printf("- 8 -----------------hey godddd ------------------------\n");
 	struct mcount_thread_data *mtdp;
 
 	mtdp = get_thread_data();

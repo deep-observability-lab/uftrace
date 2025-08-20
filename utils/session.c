@@ -197,6 +197,7 @@ void create_session(struct uftrace_session_link *sessions, struct uftrace_msg_se
 		    char *dirname, char *symdir, char *exename, bool sym_rel_addr,
 		    bool needs_symtab, bool needs_srcline)
 {
+	// printf(" -------------------------- create-session ----------------\n") ; 
 	struct uftrace_session *s;
 	struct uftrace_task *t;
 	struct rb_node *parent = NULL;

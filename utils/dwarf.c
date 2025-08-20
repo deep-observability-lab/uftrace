@@ -76,7 +76,7 @@ static int add_debug_entry(struct rb_root *root, char *func, uint64_t offset, ch
 	entry->name = xstrdup(func);
 	entry->spec = xstrdup(argspec);
 	entry->offset = offset;
-
+	// printf("[add_debug_entry] argspec = %s\n", argspec);
 	rb_link_node(&entry->node, parent, p);
 	rb_insert_color(&entry->node, root);
 
@@ -90,14 +90,19 @@ static struct debug_entry *find_debug_entry(struct rb_root *root, uint64_t offse
 	struct rb_node **p = &root->rb_node;
 	int ret;
 
+	//printf("+++++++++++++++++++++++++ in find_debug_entry\n") ; 
 	while (*p) {
 		parent = *p;
 		iter = rb_entry(parent, struct debug_entry, node);
 
 		ret = iter->offset - offset;
+		// if find any debug info it return . 
+		
 		if (ret == 0) {
 			pr_dbg3("found debug entry at %" PRIx64 " (%s%s)\n", offset, iter->name,
 				iter->spec);
+			// printf("found debug entry at %" PRIx64 " (%s%s)\n", offset, iter->name,
+			// 	iter->spec) ; 
 			return iter;
 		}
 
@@ -415,7 +420,10 @@ struct arg_data {
 
 	/* number of registers used above */
 	int struct_reg_cnt;
-
+	int is_passed_by_ref; 
+	// int is_passed_by_ref_struct; 
+	// int is_passed_by_ref_union; 
+	// int is_passed_by_ref_class; 
 	/* uftrace debug info */
 	struct uftrace_dbg_info *dinfo;
 };
@@ -465,6 +473,23 @@ enum struct_param_class {
 	PARAM_CLASS_PTR = 'p',
 };
 
+// struct resolved_struct_type;
+
+// struct resolved_member {
+//     const char *name;
+//     int offset;
+//     int size;
+//     char format;  // 'i', 'f', etc.
+//     struct resolved_struct_type *nested_type;  // NULL unless nested
+// };
+
+// struct resolved_struct_type {
+//     const char *type_name;
+//     struct resolved_member *members;
+//     int num_members;
+//     struct list_head list;  // optional for global list
+// };
+
 /* type_data contains info about single argument */
 struct type_data {
 	struct arg_data *arg_data;
@@ -474,6 +499,8 @@ struct type_data {
 	bool ignore;
 	bool broken;
 	char *name;
+	// char *resolved_data;
+	struct resolved_struct_type *resolved; 
 };
 
 static char *fill_enum_str(Dwarf_Die *die)
@@ -644,8 +671,27 @@ static void setup_param_data(struct param_data *data)
 		break;
 	}
 
-	data->reg_max = data->max_struct_size / 64;
+	data->
+	reg_max = data->max_struct_size / 64;
 }
+
+
+
+/* Map uftrace arg formats to a single char for compact field descriptors. */
+static char fmt_char_func(enum uftrace_arg_format f)
+{
+	switch (f) {
+	case ARG_FMT_CHAR:        return 'c';
+	case ARG_FMT_FLOAT:       return 'f';
+	case ARG_FMT_STR:         return 's';
+	case ARG_FMT_STD_STRING:  return 'S';
+	case ARG_FMT_PTR:         return 'p';
+	case ARG_FMT_ENUM:        return 'e';
+	case ARG_FMT_STRUCT:      return 't';
+	default:                  return 'i'; /* int-ish / default */
+	}
+}
+
 
 static int get_param_class(Dwarf_Die *die, struct arg_data *ad, struct param_data *pd)
 {
@@ -697,6 +743,7 @@ static int get_param_class(Dwarf_Die *die, struct arg_data *ad, struct param_dat
 		case DW_TAG_union_type:
 		case DW_TAG_class_type:
 			/* TODO */
+			// printf( "$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$4 \n"); 
 			return PARAM_CLASS_MEM;
 
 		case DW_TAG_array_type:
@@ -757,8 +804,85 @@ static int get_param_class(Dwarf_Die *die, struct arg_data *ad, struct param_dat
 	return PARAM_CLASS_MEM;
 }
 
+/* Minimal size resolver for member types (bytes). */
+static size_t dwarf_type_size_bytes(Dwarf_Die *die)
+{
+    Dwarf_Die ref;
+    Dwarf_Attribute at;
+
+    while (dwarf_hasattr(die, DW_AT_type)) {
+        dwarf_attr(die, DW_AT_type, &at);
+        if (!dwarf_formref_die(&at, &ref)) break;
+        die = &ref;
+
+        switch (dwarf_tag(die)) {
+        case DW_TAG_pointer_type:
+        case DW_TAG_ptr_to_member_type:
+        case DW_TAG_reference_type:
+        case DW_TAG_rvalue_reference_type:
+            return sizeof(long); /* pointer size */
+        case DW_TAG_base_type:
+        case DW_TAG_enumeration_type:
+            return type_size(die, sizeof(long)) / 8; /* you already have type_size() */
+        case DW_TAG_structure_type:
+        case DW_TAG_union_type:
+        case DW_TAG_class_type:
+            return type_size(die, sizeof(long)) / 8;
+        case DW_TAG_array_type:
+            /* Simple fallback: size of aggregate if present, else word */
+            return type_size(die, sizeof(long)) / 8;
+        default:
+            break;
+        }
+    }
+    /* Fallback */
+    return type_size(die, sizeof(long)) / 8;
+}
+
+/* Minimal formatter selector for member types. */
+static char dwarf_type_fmt_char(Dwarf_Die *die)
+{
+    Dwarf_Die ref;
+    Dwarf_Attribute at;
+
+    while (dwarf_hasattr(die, DW_AT_type)) {
+        dwarf_attr(die, DW_AT_type, &at);
+        if (!dwarf_formref_die(&at, &ref)) break;
+        die = &ref;
+
+        switch (dwarf_tag(die)) {
+        case DW_TAG_pointer_type:
+        case DW_TAG_ptr_to_member_type:
+        case DW_TAG_reference_type:
+        case DW_TAG_rvalue_reference_type:
+            return 'p';
+        case DW_TAG_enumeration_type:
+            return 'e';
+        case DW_TAG_base_type: {
+            const char *tname = dwarf_diename(die);
+            if (tname && !strcmp(tname, "char"))   return 'c';
+            if (tname && (!strcmp(tname, "float") ||
+                          !strcmp(tname, "double") ||
+                          !strcmp(tname, "long double"))) return 'f';
+            return 'i';
+        }
+        case DW_TAG_structure_type:
+        case DW_TAG_union_type:
+        case DW_TAG_class_type:
+            return 't';
+        case DW_TAG_array_type:
+            return 't'; /* treat as aggregate for now */
+        default:
+            break;
+        }
+    }
+    return 'i';
+}
+
+
 static void place_struct_members(Dwarf_Die *die, struct arg_data *ad, struct type_data *td)
 {
+	// printf("place_struct_members ========================================= \n"); 
 	Dwarf_Die child;
 	int param_class = PARAM_CLASS_NONE;
 	struct param_data pd;
@@ -772,20 +896,43 @@ static void place_struct_members(Dwarf_Die *die, struct arg_data *ad, struct typ
 	ad->struct_passed = true;
 
 	sname = dwarf_diename(die);
-	if (sname) {
-		char *p;
+	
+	// if (sname) { 
+	// 	// printf("0 ######################################### %s\n",sname) ; 
+	// 	char *p;
+	// 	td->name = xstrdup(sname);
 
-		td->name = xstrdup(sname);
+	// 	/* remove long C++ type name to prevent confusion */
+	// 	p = strpbrk(td->name + 1, "< ({[");
+	// 	if (p)
+	// 		*p = '\0';
 
-		/* remove long C++ type name to prevent confusion */
-		p = strpbrk(td->name + 1, "< ({[");
-		if (p)
-			*p = '\0';
+	// 	if (!strcmp(td->name, "basic_string"))
+	// 		pd.lookup_string = true;
+	// }
+	////////////////////////////////////////////
+	if (!sname)
+    	sname = "<anon>";
+		
+	char *p;
+	td->name = xstrdup(sname);
+	/* remove long C++ type name to prevent confusion */
+	p = strpbrk(td->name + 1, "< ({[");
+	if (p)
+		*p = '\0';
 
-		if (!strcmp(td->name, "basic_string"))
-			pd.lookup_string = true;
-	}
+	if (!strcmp(td->name, "basic_string"))
+    	pd.lookup_string = true;
 
+
+	// Allocate resolved type
+	td->resolved = xzalloc(sizeof(struct resolved_struct_type));
+	struct resolved_struct_type *res = td->resolved;
+	res->type_name = xstrdup(td->name);
+	res->members = NULL;
+	res->num_members = 0;
+	
+	
 	if (dwarf_child(die, &child) != 0)
 		return; /* no child = no member */
 
@@ -795,55 +942,167 @@ static void place_struct_members(Dwarf_Die *die, struct arg_data *ad, struct typ
 		else
 			goto pass_via_stack;
 	}
-
+	
 	do {
+		// printf("1 #########################################\n") ; 
+		// maybe need to verify which it is pointer to struct or passed_by_value 
 		switch (dwarf_tag(&child)) {
-		case DW_TAG_member:
-			if (!check_class_ptr_only) {
-				param_class = get_param_class(&child, ad, &pd);
-				if (param_class == PARAM_CLASS_MEM)
-					found_mem_class = true;
+			case DW_TAG_member:
+				if (!check_class_ptr_only) {
+					int param_class = get_param_class(&child, ad, &pd);
+					if (param_class == PARAM_CLASS_MEM)
+						found_mem_class = true;
 
-				if (!pd.lookup_string)
-					break;
+					// Extract member info
+					const char *fname = dwarf_diename(&child);
+					if (!fname) fname = "<anon>";
 
-				sname = dwarf_diename(&child);
-				if (sname && !strcmp(sname, "_M_dataplus")) {
-					td->fmt = ARG_FMT_STD_STRING;
-					td->size = sizeof(long) * 8;
-					return;
+					Dwarf_Attribute loc_attr;
+					Dwarf_Word byte_off = 0;
+					if (!dwarf_attr(&child, DW_AT_data_member_location, &loc_attr))
+						break;
+					if (dwarf_formudata(&loc_attr, &byte_off) != 0)
+						break;
+
+					size_t fbytes = sizeof(long);
+					char fcode = 'i';
+					struct resolved_struct_type *nested = NULL;
+
+					Dwarf_Attribute ftype_attr;
+					Dwarf_Die fref;
+					if (dwarf_attr(&child, DW_AT_type, &ftype_attr) &&
+						dwarf_formref_die(&ftype_attr, &fref)) {
+
+						int tag = dwarf_tag(&fref);
+						if (tag == DW_TAG_structure_type || tag == DW_TAG_union_type || tag == DW_TAG_class_type) {
+							struct type_data nested_td = {0};
+							// resolve_type_info(&fref, ad, &nested_td);
+							// change it because of the error you get : 
+							/*
+								: error: conflicting types for ‘resolve_type_info’; have ‘_Bool(Dwarf_Die *, struct arg_data *, struct type_data *)’
+									1181 | static bool resolve_type_info(Dwarf_Die *die, struct arg_data *ad, struct type_data *td)
+										|             ^~~~~~~~~~~~~~~~~
+									/home/zahra/git/test_uftrace/uftrace/utils/dwarf.c:979:57: note: previous implicit declaration of ‘resolve_type_info’ with type ‘int()’
+									979 |                                                         resolve_type_info(&fref, ad, &nested_td);
+										|                                                         ^~~~~~~~~~~~~~~~~
+							*/
+							if (nested_td.resolved)
+								nested = nested_td.resolved;
+							fbytes = nested_td.size;
+							fcode = 't';
+						} else {
+							fbytes = dwarf_type_size_bytes(&fref);
+							if (fbytes == 0) fbytes = sizeof(long);
+							fcode = dwarf_type_fmt_char(&fref);
+						}
+					}
+
+					// Store member in resolved type
+					res->members = xrealloc(res->members, sizeof(struct resolved_member) * (res->num_members + 1));
+					struct resolved_member *m = &res->members[res->num_members++];
+					m->name = xstrdup(fname);
+					m->offset = byte_off;
+					m->size = fbytes;
+					m->format = fcode;
+					m->nested_type = nested;
+					// if (td->name && strstr( td->name , "Point")) 
+					
 				}
-			}
-			break;
+				break;
+			// case DW_TAG_member:
+			// // printf("2 #########################################\n") ; 
+			// 	if (!check_class_ptr_only) {
+			// 		param_class = get_param_class(&child, ad, &pd);
+			// 		if (param_class == PARAM_CLASS_MEM)
+			// 			found_mem_class = true;
 
-		case DW_TAG_inheritance:
-			/* TODO */
-			break;
+			// 		/* --- NEW: collect member metadata for ALL members --- */
+			// 		do {
+			// 			const char *fname = dwarf_diename(&child);
+			// 			if (!fname) fname = "<anon>";
 
-		case DW_TAG_subprogram:
-			/*
-			 * FIXME: assume pass via stack if it has a (probably
-			 * non-trivial) destructor or a virtual function
-			 */
-			if (!ad->class_via_ptr)
+			// 			/* member byte offset (constant only) */
+			// 			Dwarf_Attribute loc_attr;
+			// 			Dwarf_Word byte_off = 0;
+			// 			if (!dwarf_attr(&child, DW_AT_data_member_location, &loc_attr))
+			// 				break; /* no location; skip metadata */
+
+			// 			if (dwarf_formudata(&loc_attr, &byte_off) != 0){
+			// 				break; /* non-constant exprloc; skip for now */
+			// 				/*  we should explore more for the nested types . */
+			// 			}
+
+			// 			/* member type DIE */
+			// 			Dwarf_Attribute ftype_attr;
+			// 			Dwarf_Die fref;
+			// 			size_t fbytes = 0;
+			// 			char   fcode  = 'i';
+
+			// 			if (dwarf_attr(&child, DW_AT_type, &ftype_attr) &&
+			// 				dwarf_formref_die(&ftype_attr, &fref)) {
+			// 				fbytes = dwarf_type_size_bytes(&fref);
+			// 				if (fbytes == 0) fbytes = sizeof(long);
+			// 				fcode  = dwarf_type_fmt_char(&fref);
+			// 			}
+			// 			else {
+			// 				/* fallback if no type reference */
+			// 				fbytes = sizeof(long);
+			// 				fcode  = 'i';
+			// 			}
+						
+			// 			/* append: name@off:size:fmt */
+			// 			char buf[256];
+			// 			int n = snprintf(buf, sizeof(buf), "%s@%llu:%zu:%c",
+			// 							fname, (unsigned long long)byte_off, fbytes, fcode);
+			// 			if (n > 0){
+			// 				td->resolved_data = strjoin(td->resolved_data, buf, ",");
+			// 				//printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^ %s\n", buf);
+			// 			}
+			// 		} while (0);
+			// 		/* --- END NEW --- */
+			// 		/* keep existing std::string special-case */
+			// 		if (!pd.lookup_string){
+			// 			// printf("3 ######################################### %s\n",td->resolved_data) ; 
+			// 			break;
+			// 		}
+			// 		sname = dwarf_diename(&child);
+			// 		if (sname && !strcmp(sname, "_M_dataplus")) {
+			// 			td->fmt  = ARG_FMT_STD_STRING;
+			// 			td->size = sizeof(long) * 8;
+			// 			return;
+			// 		}
+			// 	}
+			// 	break;
+
+			case DW_TAG_inheritance:
+				/* TODO */
 				break;
 
-			if (ad->reg_pos >= ad->reg_max)
-				goto pass_via_stack;
+			case DW_TAG_subprogram:
+				/*
+				* FIXME: assume pass via stack if it has a (probably
+				* non-trivial) destructor or a virtual function
+				*/
+				if (!ad->class_via_ptr)
+					break;
 
-			sname = dwarf_diename(&child);
-			if ((sname && sname[0] == '~') || dwarf_hasattr(die, DW_AT_virtuality)) {
-				pr_dbg3("non-trivial class passed via pointer\n");
-				ad->struct_regs[0] = PARAM_CLASS_PTR;
-				ad->struct_reg_cnt = 1;
-				return;
+				if (ad->reg_pos >= ad->reg_max)
+					goto pass_via_stack;
+
+				sname = dwarf_diename(&child);
+				if ((sname && sname[0] == '~') || dwarf_hasattr(die, DW_AT_virtuality)) {
+					pr_dbg3("non-trivial class passed via pointer\n");
+					ad->struct_regs[0] = PARAM_CLASS_PTR;
+					ad->struct_reg_cnt = 1;
+					return;
+				}
+				break;
+
+			default:
+				break;
 			}
-			break;
-
-		default:
-			break;
-		}
 	} while (dwarf_siblingof(&child, &child) == 0);
+
 
 	if (td->size > pd.max_struct_size)
 		goto pass_via_stack;
@@ -867,6 +1126,7 @@ static void place_struct_members(Dwarf_Die *die, struct arg_data *ad, struct typ
 
 	memcpy(ad->struct_regs, pd.regs, sizeof(pd.regs));
 	ad->struct_reg_cnt = pd.reg_cnt;
+	
 	return;
 
 pass_via_stack:
@@ -880,23 +1140,75 @@ pass_via_stack:
 	}
 }
 
+
+char *make_struct_name(Dwarf_Die *die)
+{
+    Dwarf_Off offset = dwarf_dieoffset(die);
+    char *s;
+    xasprintf(&s, "anon_struct_0x%" PRIx64, (uint64_t)offset);
+    return s;
+}
+
+
+// static void print_struct_fields(Dwarf_Die *die)
+// {
+//     const char *sname = dwarf_diename(die);
+// 	char* name ; 
+// 	if (sname && isalpha(*sname)) {
+// 		name = xstrdup(sname);
+// 		printf("Struct name: %s\n", name);
+// 		if (name && strstr( name , "Point")) {
+// 			printf("====== Pointer to struct detected! ======\n");
+// 			// printf("Pointer depth: %d\n", td->pointer);
+// 			printf("Struct name: %s\n", name);
+// 			// ==== Dump fields of the struct ====
+// 			Dwarf_Die child;
+// 			if (dwarf_child(die, &child) == 0) {
+// 				do {
+// 					if (dwarf_tag(&child) != DW_TAG_member)
+// 						continue;
+
+// 					const char *field_name = dwarf_diename(&child);
+// 					Dwarf_Attribute attr;
+// 					Dwarf_Word offset = 0;
+
+// 					if (dwarf_attr(&child, DW_AT_data_member_location, &attr)) {
+// 						dwarf_formudata(&attr, &offset);
+// 					}
+
+// 					if (field_name) {
+// 						printf("  -> Field: %s (offset: %llu)\n",
+// 							field_name, (unsigned long long)offset);
+// 					}
+// 				} while (dwarf_siblingof(&child, &child) == 0);
+// 			}
+// 		}
+// 	}
+	
+// }
+
+
+
 static bool resolve_type_info(Dwarf_Die *die, struct arg_data *ad, struct type_data *td)
 {
+	// printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!! Boom !!!!!!!!!!!!!!!!!!!!!!!!!!\n") ; 
+	// printf("resolve_type_info ========================================= \n") ; 
 	Dwarf_Die ref;
 	Dwarf_Attribute type;
 	unsigned aform;
 	const char *tname;
 	char *enum_def;
 	char *enum_str;
-
+	int tag ; 
 	/*
 	 * type refers to another type in a chain like:
 	 *   (pointer) -> (const) -> (char)
 	 */
+	
 	while (dwarf_hasattr(die, DW_AT_type)) {
 		dwarf_attr(die, DW_AT_type, &type);
 		aform = dwarf_whatform(&type);
-
+		// printf("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$44 %x\n",aform) ;
 		switch (aform) {
 		case DW_FORM_ref1:
 		case DW_FORM_ref2:
@@ -907,14 +1219,15 @@ static bool resolve_type_info(Dwarf_Die *die, struct arg_data *ad, struct type_d
 		case DW_FORM_ref_sig8:
 		case DW_FORM_GNU_ref_alt:
 			dwarf_formref_die(&type, &ref);
+			// Replace the current DIE with the new one (the referenced DIE). Now die points to the pointee type, and the loop continues with it.
 			die = &ref;
 			break;
 		default:
 			pr_dbg2("unhandled type form: %u\n", aform);
 			return false;
 		}
-
-		switch (dwarf_tag(die)) {
+		tag = dwarf_tag(die) ; 
+		switch (tag) {
 		case DW_TAG_enumeration_type:
 			if (td->pointer)
 				break;
@@ -925,11 +1238,18 @@ static bool resolve_type_info(Dwarf_Die *die, struct arg_data *ad, struct type_d
 
 			td->fmt = ARG_FMT_ENUM;
 			tname = dwarf_diename(die);
-			if (tname && (isalpha(*tname) || *tname == '_'))
+			// if (tname && strstr(tname, "print_point")) {
+			// 	printf("4 Found print_point at DIE level!\n");
+			// }
+			
+			if (tname && (isalpha(*tname) || *tname == '_')){
 				td->name = xstrdup(tname);
-			else
+				// printf(" 1************************************************************************\n"); 
+			}
+			else{
 				td->name = make_enum_name(die);
-
+				// printf(" 2 ************************************************************************\n"); 
+			}
 			xasprintf(&enum_def, "enum %s { %s }", td->name, enum_str);
 			pr_dbg3("type: %s\n", enum_str);
 
@@ -945,23 +1265,28 @@ static bool resolve_type_info(Dwarf_Die *die, struct arg_data *ad, struct type_d
 		case DW_TAG_class_type:
 			/* ignore struct with no member (when called-by-value) */
 			if (td->pointer)
-				break;
-
+			{
+				// ad->is_passed_by_ref=1;
+				// pr_use("") ; 
+			}
 			td->fmt = ARG_FMT_STRUCT;
 			if (is_empty_aggregate(die))
 				td->size = 0;
 			else
 				td->size = type_size(die, sizeof(long));
+			
 			place_struct_members(die, ad, td);
+			// printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ %s\n",td->resolved_data) ; 
 			pr_dbg3("type: struct/union/class: %s\n", td->name ?: "(no name)");
 			return true;
-
 		case DW_TAG_pointer_type:
 		case DW_TAG_ptr_to_member_type:
 		case DW_TAG_reference_type:
 		case DW_TAG_rvalue_reference_type:
 			td->pointer++;
+			ad->is_passed_by_ref=1;
 			pr_dbg3("type: pointer/reference\n");
+			
 			break;
 		case DW_TAG_array_type:
 			pr_dbg3("type: array\n");
@@ -979,15 +1304,20 @@ static bool resolve_type_info(Dwarf_Die *die, struct arg_data *ad, struct type_d
 			break;
 		default:
 			pr_dbg3("type: %s (tag %d)\n", dwarf_diename(die), dwarf_tag(die));
+			const char *sname = dwarf_diename(die) ; 
+			if (sname && strstr(sname, "print_point")) {
+				printf("3 Found print_point at DIE level!\n");
+			}
+			
 			break;
 		}
 	}
-
 	tname = dwarf_diename(die);
-
+	// if (tname && strstr(tname, "print_point")) {
+	// 	printf("2 Found print_point at DIE level!\n");
+	// }
 	if (td->pointer) {
 		td->size = sizeof(long) * 8;
-
 		/* treat 'char *' as string */
 		if (td->pointer == 1 && tname && !strcmp(tname, "char"))
 			td->fmt = ARG_FMT_STR;
@@ -997,10 +1327,9 @@ static bool resolve_type_info(Dwarf_Die *die, struct arg_data *ad, struct type_d
 	}
 
 	td->size = type_size(die, sizeof(long));
-
-	if (dwarf_tag(die) != DW_TAG_base_type)
+	if (dwarf_tag(die) != DW_TAG_base_type){
 		return false;
-
+	}
 	if (!strcmp(tname, "char"))
 		td->fmt = ARG_FMT_CHAR;
 	else if (!strcmp(tname, "float"))
@@ -1011,12 +1340,12 @@ static bool resolve_type_info(Dwarf_Die *die, struct arg_data *ad, struct type_d
 		td->fmt = ARG_FMT_FLOAT;
 		td->size = 80;
 	}
-
 	return true;
 }
 
 static bool add_type_info(char *spec, size_t len, Dwarf_Die *die, struct arg_data *ad)
 {
+	// printf("add type info  ========================================= \n") ; 
 	struct type_data data = {
 		.fmt = ARG_FMT_AUTO,
 		.arg_data = ad,
@@ -1041,7 +1370,6 @@ static bool add_type_info(char *spec, size_t len, Dwarf_Die *die, struct arg_dat
 
 	ad->last_fmt = data.fmt;
 	ad->last_size = data.size / 8;
-
 	switch (data.fmt) {
 	case ARG_FMT_CHAR:
 		strcat(spec, "/c");
@@ -1077,7 +1405,23 @@ static bool add_type_info(char *spec, size_t len, Dwarf_Die *die, struct arg_dat
 	case ARG_FMT_STRUCT:
 		if (ad->idx) { /* for arguments */
 			snprintf(spec, len, "arg%d/t%d", ad->idx, ad->last_size);
+			if (data.pointer) {
+				// if (!data.name)
+				// 	data.name = xstrdup("<anon>");
+				size_t oldlen = strlen(data.name);
+				// Format pointer as string
+				char addr_buf[32];
+				snprintf(addr_buf, sizeof(addr_buf), "%p", (void *)data.resolved);
+				// Allocate enough space: old + "/&" + pointer + '\0'
+				size_t newlen = oldlen + 2 + strlen(addr_buf) + 1;
+				data.name = realloc(data.name, newlen);
+				// Concatenate
+				strcat(data.name, "/&");
+				strcat(data.name, addr_buf);
+				// printf("******************************&&&&&&&&&&& %s %x\n",data.name ,  data.resolved ); 
+			}
 		}
+
 		else { /* for return valus */
 			char sz[16];
 
@@ -1097,14 +1441,57 @@ static bool add_type_info(char *spec, size_t len, Dwarf_Die *die, struct arg_dat
 				strcat(spec, data.name);
 			}
 		}
+		
+		// if (ad->idx) { /* for arguments */
+		// 	snprintf(spec, len, "arg%d/t%d", ad->idx, ad->last_size);
+		// 	if (data.pointer) {
+		// 		if (!data.name)
+		// 			data.name = xstrdup("<anon>");
+		// 		size_t oldlen = strlen(data.name);
+		// 		data.name = realloc(data.name, oldlen + 3);  // "/&" + '\0' = 3
+		// 		strcat(data.name, "/&");
+		// 	}
+		// }
+
+		// else { /* for return valus */
+		// 	char sz[16];
+
+		// 	snprintf(sz, sizeof(sz), "/t%d", ad->last_size);
+		// 	strcat(spec, sz);
+		// }
+
+		// if (data.name) {
+		// 	int len1 = strlen(spec) + 1;
+		// 	int len2 = strlen(data.name);
+
+		// 	strcat(spec, ":");
+		// 	if (len1 + len2 >= ARGSPEC_MAX_SIZE) {
+		// 		strncat(spec, data.name, ARGSPEC_MAX_SIZE - len1 - 1);
+		// 		spec[ARGSPEC_MAX_SIZE - 1] = '\0';
+		// 	}
+		// 	else {
+		// 		strcat(spec, data.name);
+		// 	}
+		// }
+
+		// if (data.resolved ) {
+			// size_t room = ARGSPEC_MAX_SIZE - strlen(spec) - 1;
+			
+		// if (room > 2) {
+		// 	strncat(spec, "{", 1);
+		// 	strncat(spec, data.resolved_data, room - 2);
+		// 	strncat(spec, "}", 1);
+		// 	// printf("1 --------------------------------------- spec: %s\n", spec); 
+		// }
+		
 		break;
 	default:
 		break;
 	}
-
+	
 	free(data.name);
 	return true;
-}
+}	
 
 struct location_data {
 	int type;
@@ -1177,13 +1564,12 @@ static void add_location(char *spec, size_t len, Dwarf_Die *die, struct arg_data
 	struct location_data data = {
 		.type = ARG_TYPE_INDEX,
 	};
+	//printf("--------------------------------------- buf: %s \n", spec); 
 	char buf[32];
 	const char *reg = NULL;
 	enum uftrace_cpu_arch arch = host_cpu_arch();
 	int i;
-
 	get_arg_location(die, &data);
-
 	/*
 	 * If a struct argument was passed by value, all the remaining arguments
 	 * need to have specific location info because the index-based location
@@ -1314,7 +1700,7 @@ static int get_argspec(Dwarf_Die *die, void *data)
 	Dwarf_Die arg;
 	Dwarf_Addr offset = 0;
 	int count = 0;
-
+	
 	dwarf_lowpc(die, &offset);
 	pr_dbg2("found '%s' function for argspec (%#lx)\n", ad->name, offset);
 
@@ -1339,18 +1725,25 @@ static int get_argspec(Dwarf_Die *die, void *data)
 			continue;
 
 		snprintf(buf, sizeof(buf), "arg%d", ++ad->idx);
+		
 		if (!add_type_info(buf, sizeof(buf), &arg, ad)) {
 			/* ignore this argument */
 			ad->idx--;
 			continue;
 		}
-		add_location(buf, sizeof(buf), &arg, ad);
-
-		if (ad->argspec == NULL)
+		if ( ad->is_passed_by_ref == 0 ){
+			add_location(buf, sizeof(buf), &arg, ad);
+			// printf("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n"); 
+		}
+		if (ad->argspec == NULL){
 			xasprintf(&ad->argspec, "@%s", buf);
+			// printf("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& argspec: %s\n", ad->argspec); 
+		}
 		else
+		{
 			ad->argspec = strjoin(ad->argspec, buf, ",");
-
+			// printf("************************************** argspec: %s\n", ad->argspec); 
+		}
 		count++;
 	} while (dwarf_siblingof(&arg, &arg) == 0);
 
@@ -1526,8 +1919,9 @@ static int get_dwarfspecs_cb(Dwarf_Die *die, void *data)
 
 	if (dwarf_hasattr_integrate(die, DW_AT_linkage_name))
 		name = str_attr(die, DW_AT_linkage_name, true);
-	if (name == NULL)
+	if (name == NULL){
 		name = (char *)dwarf_diename(die);
+	}
 	if (unlikely(name == NULL))
 		return DWARF_CB_OK;
 
@@ -1539,6 +1933,7 @@ static int get_dwarfspecs_cb(Dwarf_Die *die, void *data)
 	 * but DWARF doesn't know about it.
 	 */
 	sym = find_sym(bd->symtab, offset + 1);
+	
 	if (sym == NULL || !match_name(sym, name)) {
 		pr_dbg4("skip unknown debug info: %s / %s (%lx)\n", sym ? sym->name : "no name",
 			name, offset);
@@ -1546,12 +1941,11 @@ static int get_dwarfspecs_cb(Dwarf_Die *die, void *data)
 	}
 
 	get_source_location(die, bd, sym);
-
 	setup_arg_data(&ad, sym->name, bd->dinfo);
-
+	
 	for (i = 0; i < bd->nr_rets; i++) {
 		if (!match_filter_pattern(&bd->rets[i], sym->name))
-			continue;
+		continue;
 
 		if (get_retspec(die, &ad, true)) {
 			add_debug_entry(&bd->dinfo->rets, sym->name, sym->addr, ad.argspec);
@@ -1561,6 +1955,9 @@ static int get_dwarfspecs_cb(Dwarf_Die *die, void *data)
 		ad.argspec = NULL;
 		break;
 	}
+	// if (name && strstr(name, "print_point")) {
+	// 	printf("1 Found print_point at DIE level!\n");
+	// }
 
 	for (i = 0; i < bd->nr_args; i++) {
 		if (!match_filter_pattern(&bd->args[i], sym->name))
@@ -1568,13 +1965,14 @@ static int get_dwarfspecs_cb(Dwarf_Die *die, void *data)
 
 		if (get_argspec(die, &ad)) {
 			add_debug_entry(&bd->dinfo->args, sym->name, sym->addr, ad.argspec);
+			// printf("[get_dwarfspecs_cb] argspec = %s\n", ad.argspec);
 		}
 
 		free(ad.argspec);
 		ad.argspec = NULL;
 		break;
 	}
-
+	
 out:
 	return DWARF_CB_OK;
 }
@@ -1847,6 +2245,7 @@ static void extract_dwarf_args(char *argspec, char *retspec, struct strv *pargs,
 void prepare_debug_info(struct uftrace_sym_info *sinfo, enum uftrace_pattern_type ptype,
 			char *argspec, char *retspec, bool auto_args, bool force)
 {
+	// printf("--------------- in prepare_debug_info ----- \n") ; 
 	struct uftrace_mmap *map;
 	struct strv dwarf_args = STRV_INIT;
 	struct strv dwarf_rets = STRV_INIT;
@@ -2224,7 +2623,7 @@ out:
 void load_debug_info(struct uftrace_sym_info *sinfo, bool needs_srcline)
 {
 	struct uftrace_mmap *map;
-
+	// printf("--------------- in load_debug_info ----- \n") ; 
 	for_each_map(sinfo, map) {
 		struct uftrace_module *mod = map->mod;
 		struct uftrace_symtab *stab;
@@ -2239,12 +2638,14 @@ void load_debug_info(struct uftrace_sym_info *sinfo, bool needs_srcline)
 		if (!debug_info_has_location(dinfo) && !debug_info_has_argspec(dinfo)) {
 			load_debug_file(dinfo, stab, sinfo->symdir, map->libname, map->build_id,
 					needs_srcline);
+			// printf("--------------- in load_debug_info ----- \n") ; 
 		}
 	}
 }
 
 char *get_dwarf_argspec(struct uftrace_dbg_info *dinfo, char *name, unsigned long addr)
 {
+	// printf(" +++++++++++++++++++++++++ in get_dwarf_argspec\n") ; 
 	struct debug_entry *entry = find_debug_entry(&dinfo->args, addr);
 
 	return entry ? entry->spec : NULL;
@@ -2252,8 +2653,8 @@ char *get_dwarf_argspec(struct uftrace_dbg_info *dinfo, char *name, unsigned lon
 
 char *get_dwarf_retspec(struct uftrace_dbg_info *dinfo, char *name, unsigned long addr)
 {
+	// printf(" +++++++++++++++++++++++++ in get_dwarf_argspec\n") ; 
 	struct debug_entry *entry = find_debug_entry(&dinfo->rets, addr);
-
 	return entry ? entry->spec : NULL;
 }
 

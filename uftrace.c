@@ -1399,6 +1399,9 @@ __used static void show_man_page(char *cmd)
 #ifndef UNIT_TEST
 int main(int argc, char *argv[])
 {
+	//set_debug_level("all", 3);
+	// pr_dbg2("----------------------------------------------------------\n");
+	//printf("--------------------------------------------------------- 1 -\n") ; 
 	struct uftrace_opts opts = {
 		.mode = UFTRACE_MODE_INVALID,
 		.dirname = UFTRACE_DIR_NAME,

@@ -923,6 +923,7 @@ static unsigned long __plthook_entry(unsigned long *ret_addr, unsigned long chil
 	if (unlikely(special_flag)) {
 		/* force flush rstack on some special functions */
 		if (special_flag & PLT_FL_FLUSH) {
+			printf("1 --------------tttttttttttttt-----------------------\n"); 
 			record_trace_data(mtdp, rstack, NULL);
 		}
 
@@ -1001,6 +1002,7 @@ void mtd_dtor(void *arg);
 
 static unsigned long __plthook_exit(long *retval)
 {
+	// printf("- 10-----------------hey godddd ------------------------\n");
 	unsigned dyn_idx;
 	struct mcount_thread_data *mtdp;
 	struct mcount_ret_stack *rstack;

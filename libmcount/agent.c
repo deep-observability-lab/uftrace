@@ -48,6 +48,7 @@ static void swap_triggers(struct uftrace_triggers_info **old, struct uftrace_tri
  */
 static void agent_setup_filter(char *filter_str, struct uftrace_triggers_info *triggers)
 {
+	printf(" in agent setup filter \n ") ; 
 	uftrace_setup_filter(filter_str, &mcount_sym_info, triggers, &mcount_filter_setting);
 }
 

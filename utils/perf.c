@@ -165,6 +165,7 @@ void finish_perf_record(struct uftrace_perf_writer *perf)
  */
 void record_perf_data(struct uftrace_perf_writer *perf, int cpu, int sock)
 {
+	printf("in record_perf_data -----------------------------\n"); 
 	struct perf_event_mmap_page *pc;
 	unsigned char *data;
 	volatile uint64_t *ptr;

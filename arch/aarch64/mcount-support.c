@@ -148,6 +148,7 @@ static void mcount_get_stack_arg(struct mcount_arg_context *ctx, struct uftrace_
 
 static void mcount_get_struct_arg(struct mcount_arg_context *ctx, struct uftrace_arg_spec *spec)
 {
+	printf("------------ boom ---------------------------------------------------------\n") ; 
 	struct uftrace_arg_spec reg_spec = {
 		.type = ARG_TYPE_REG,
 	};

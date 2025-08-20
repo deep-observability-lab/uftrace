@@ -427,11 +427,11 @@ void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len
 {
 	int i = 0, n = 0;
 	char *str = NULL;
-
 	const int null_str = -1;
 	void *data = task->args.data;
 	struct list_head *arg_list = task->args.args;
 	struct uftrace_arg_spec *spec;
+	printf("############### $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$44 ####### %p \n",data); 
 	union {
 		long i;
 		void *p;
@@ -448,7 +448,7 @@ void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len
 	bool is_retval = !!(str_mode & IS_RETVAL);
 	bool needs_assignment = !!(str_mode & NEEDS_ASSIGNMENT);
 	bool needs_json = !!(str_mode & NEEDS_JSON);
-
+	
 	if (!has_more) {
 		if (needs_paren)
 			strcpy(args, "()");
@@ -466,8 +466,10 @@ void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len
 		print_args(&args, &len, "(");
 	else if (needs_assignment)
 		print_args(&args, &len, " = ");
-
+	
+	
 	list_for_each_entry(spec, arg_list, list) {
+		
 		char fmtstr[16];
 		char *len_mod[] = { "hh", "h", "", "ll" };
 		char fmt, *lm;
@@ -533,12 +535,14 @@ void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len
 			size = sizeof(int);
 		}
 		else if (spec->fmt == ARG_FMT_STR || spec->fmt == ARG_FMT_STD_STRING) {
+		
 			unsigned short slen;
-
+			
 			memcpy(&slen, data, 2);
 
 			str = xmalloc(slen + 1);
 			memcpy(str, data + 2, slen);
+			
 			str[slen] = '\0';
 
 			if (slen == 4 && !memcmp(str, &null_str, sizeof(null_str)))
@@ -687,20 +691,67 @@ void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len
 			free(estr);
 		}
 		else if (spec->fmt == ARG_FMT_STRUCT) {
-			if (spec->type_name) {
+			if (spec->type_name && spec->is_ptr == 0) {
 				/*
 				 * gcc puts "<lambda" to anonymous lambda
 				 * but let's ignore to make it same as clang.
 				 */
 				if (strcmp(spec->type_name, "<lambda")) {
+					
 					print_args(&args, &len, "%s%s%s", color_struct,
 						   spec->type_name, color_reset);
 				}
 			}
-			if (spec->size)
-				print_args(&args, &len, "{...}");
-			else
-				print_args(&args, &len, "{}");
+			
+			if (spec->is_ptr && spec->resolved_struct){
+				unsigned short slen;
+				memcpy(&slen, data, 2);
+				// printf(" in replay .c get_argspec_string *************************** this is slen : %p\n", spec); 
+				str = xmalloc(slen + 1);
+				memcpy(str, data + 2, slen);
+				str[slen] = '\0';
+				printf( " what is stored at str is ----------------------- %s and size is %d \n", str , slen ) ; 
+				unsigned j ; 
+				
+				{
+					char *p = str;
+
+					print_args(&args, &len, "%s\"", color_string);
+					while (*p) {
+						char c = *p++;
+						if (c & 0x80) {
+							break;
+						}
+					}
+					/*
+					* if value of character is over than 128(0x80),
+					* then it will be UTF-8 string
+					*/
+					if (*p) {
+						print_args(&args, &len, "%.*s", slen, str);
+					}
+					else {
+						p = str;
+						while (*p) {
+							char c = *p++;
+							print_escaped_char(&args, &len, c);
+						}
+					}
+					print_args(&args, &len, "\"%s", color_reset);
+				}
+
+				free(str);
+				size = slen + 2;
+				// free(spec->resolved_struct); 
+			}
+			/////////////// be carefule about struct passed by value 
+			else{
+				if (spec->size){
+					print_args(&args, &len, "{...}");
+				}
+				else
+					print_args(&args, &len, "{}");
+			}
 		}
 		else {
 			if (spec->fmt != ARG_FMT_AUTO)
@@ -718,6 +769,7 @@ void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len
 
 next:
 		i++;
+		// printf("00000000000000000000000000000 size %d\n",ALIGN(size, 4)); 
 		data += ALIGN(size, 4);
 
 		if (len <= 2)
@@ -727,7 +779,7 @@ next:
 		if (is_retval)
 			break;
 	}
-
+	// printf("end --------------------------- \n"); 
 	if (needs_paren) {
 		print_args(&args, &len, ")");
 	}
@@ -741,6 +793,7 @@ next:
 static int print_graph_rstack(struct uftrace_data *handle, struct uftrace_task_reader *task,
 			      struct uftrace_opts *opts)
 {
+	// printf("in print graph stack $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$44\n"); 
 	struct uftrace_record *rstack;
 	struct uftrace_session_link *sessions = &handle->sessions;
 	struct uftrace_symbol *sym = NULL;
@@ -761,6 +814,7 @@ static int print_graph_rstack(struct uftrace_data *handle, struct uftrace_task_r
 
 	sym = task_find_sym(sessions, task, rstack);
 	symname = symbol_getname(sym, rstack->addr);
+	// printf("^^^^^^^^^^^^^^^^ this is function name ^^^^^^^^^^^^^^^^^^^^^^6 %s\n", symname) ;  
 
 	/* skip it if --no-libcall is given */
 	if (!opts->libcall && sym && sym->type == ST_PLT_FUNC)
@@ -793,7 +847,7 @@ static int print_graph_rstack(struct uftrace_data *handle, struct uftrace_task_r
 		if (opts->comment && loc)
 			xasprintf(&str_loc, "%s:%d", loc->file->name, loc->line);
 	}
-
+	
 	if (rstack->type == UFTRACE_ENTRY) {
 		struct uftrace_task_reader *next = NULL;
 		struct uftrace_fstack *fstack;
@@ -1147,25 +1201,27 @@ int command_replay(int argc, char *argv[], struct uftrace_opts *opts)
 	uint64_t prev_time = 0;
 	struct uftrace_data handle;
 	struct uftrace_task_reader *task;
-
+	
 	__fsetlocking(outfp, FSETLOCKING_BYCALLER);
 	__fsetlocking(logfp, FSETLOCKING_BYCALLER);
-
+	
 	ret = open_data_file(opts, &handle);
 	if (ret < 0) {
 		pr_warn("cannot open record data: %s: %m\n", opts->dirname);
 		return -1;
 	}
-
+	
 	fstack_setup_filters(opts, &handle);
 	setup_field(&output_fields, opts, &setup_default_field, field_table,
-		    ARRAY_SIZE(field_table));
-
-	if (format_mode == FORMAT_HTML)
+		ARRAY_SIZE(field_table));
+		
+		if (format_mode == FORMAT_HTML)
 		pr_out(HTML_HEADER);
-
-	if (!opts->flat && peek_rstack(&handle, &task) == 0)
+	
+	printf(" meta ________________________________ replay________________________________________\n"); 
+	if (!opts->flat && peek_rstack(&handle, &task) == 0){
 		print_header(&output_fields, "#", "FUNCTION", 1, false);
+	}
 	if (!list_empty(&output_fields)) {
 		if (opts->srcline)
 			pr_gray(" [SOURCE]");

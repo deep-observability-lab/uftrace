@@ -53,11 +53,12 @@ struct uftrace_arg_spec *parse_argspec(char *str, struct uftrace_filter_setting 
 	int bit;
 	char *suffix;
 	char *p;
-
+	
 	if (!strncmp(str, "arg", 3) && isdigit(str[3])) {
 		idx = strtol(str + 3, &suffix, 0);
 		type = ARG_TYPE_INDEX;
 	}
+	
 	else if (!strncmp(str, "retval", 6)) {
 		idx = RETVAL_IDX;
 		type = ARG_TYPE_INDEX;
@@ -74,8 +75,10 @@ struct uftrace_arg_spec *parse_argspec(char *str, struct uftrace_filter_setting 
 		return NULL;
 	}
 
+
 	arg = xzalloc(sizeof(*arg));
 	INIT_LIST_HEAD(&arg->list);
+
 
 	if (suffix == NULL || *suffix == '\0')
 		goto out;
@@ -85,6 +88,7 @@ struct uftrace_arg_spec *parse_argspec(char *str, struct uftrace_filter_setting 
 		goto err;
 
 	suffix++;
+
 	switch (*suffix) {
 	case 'd':
 		fmt = ARG_FMT_AUTO;
@@ -155,15 +159,49 @@ struct uftrace_arg_spec *parse_argspec(char *str, struct uftrace_filter_setting 
 		size = strtol(&suffix[1], &suffix, 0);
 		arg->struct_reg_cnt = 0;
 
+		// if (*suffix == ':') {
+		// 	arg->type_name = xstrdup(&suffix[1]);
+		// 	p = strchr(arg->type_name, '%');4
+		// 	if (p)
+		// 		*p = '\0';
+
+		// 	suffix += strlen(arg->type_name) + 1;
+		// }
+
 		if (*suffix == ':') {
 			arg->type_name = xstrdup(&suffix[1]);
+			
+			// Detect pointer-to-struct case (pass-by-ref)
+			char *ref = strstr(arg->type_name, "/&");
+		
+			// printf("*******************8 type name %s\n",arg->type_name); 
+			if (ref) {
+				*ref = '\0'; // Strip "/&" from type_name
+				// Extract and store the address
+				char *addr_str = ref + 2; // skip "/&"
+				unsigned long long addr = strtoull(addr_str, NULL, 0);
+				arg->resolved_struct = (struct resolved_struct_type *) (uintptr_t) addr;
+
+				// Optional debug
+				// if (arg->type_name && strstr(arg->type_name, "Point") != NULL) {
+				// 	// printf("pars_argspec Extracted struct address: 0x%llx (%p) for type: %s\n",
+				// 	// 	addr, arg->resolved_struct, arg->type_name);
+				// }
+				arg->type = ARG_TYPE_REG;
+				arg->size = sizeof(void *);
+				arg->is_ptr = 1;	
+			}
+
+			// Remove trailing register marker
 			p = strchr(arg->type_name, '%');
 			if (p)
 				*p = '\0';
-
+			// if (str && strstr( str , "Point")) {
+			// 	printf(" pars_argspec 1 =============== ref %s type name %s\n", ref, arg->type_name );
+			// }
 			suffix += strlen(arg->type_name) + 1;
 		}
-
+		
 		pr_dbg2("parsing argspec for struct: %s\n", arg->type_name ?: "(no name)");
 
 		if (*suffix == '%') {
@@ -220,6 +258,8 @@ size:
 		/* fall through */
 	default:
 		pr_use("unsupported argument size: %s\n", str);
+		
+		// pr_use("^^^^^^^^^^^^^^^^^^^^^^^ %s\n", str ); 
 		goto err;
 	}
 
@@ -253,7 +293,6 @@ out:
 	arg->fmt = fmt;
 	arg->size = size;
 	arg->type = type;
-
 	return arg;
 
 err:

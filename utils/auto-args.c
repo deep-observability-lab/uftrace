@@ -95,7 +95,7 @@ static void build_auto_args(const char *args_str, struct rb_root *root, unsigned
 		 * splitting the original string.
 		 */
 		entry.end = (unsigned long)xstrdup(p + 1);
-
+		// printf(" build_auto_args =================================== \n") ; 
 		if (setup_trigger_action(name, &tr, NULL, flag, setting) < 0)
 			goto next;
 
@@ -147,6 +147,7 @@ static struct uftrace_filter *find_dwarf_argspec(struct uftrace_filter *filter,
 						 struct uftrace_dbg_info *dinfo, bool is_retval,
 						 struct uftrace_filter_setting *setting)
 {
+	// printf(" &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& find_dwarf_argspec \n" ) ; 
 	LIST_HEAD(dwarf_argspec);
 	struct uftrace_filter *dwarf_filter;
 	struct uftrace_trigger dwarf_tr = {
@@ -155,7 +156,7 @@ static struct uftrace_filter *find_dwarf_argspec(struct uftrace_filter *filter,
 	char *arg_str;
 	unsigned long flag = is_retval ? TRIGGER_FL_RETVAL : TRIGGER_FL_ARGUMENT;
 	unsigned long addr = filter->start;
-
+	
 	if (is_retval)
 		arg_str = get_dwarf_retspec(dinfo, filter->name, addr);
 	else
@@ -164,6 +165,7 @@ static struct uftrace_filter *find_dwarf_argspec(struct uftrace_filter *filter,
 		return NULL;
 
 	arg_str = xstrdup(arg_str);
+	// printf(" find_dwarf_argspec =================================== \n") ; 
 	setup_trigger_action(arg_str, &dwarf_tr, NULL, flag, setting);
 	if (list_empty(dwarf_tr.pargs)) {
 		free(arg_str);
@@ -180,7 +182,6 @@ static struct uftrace_filter *find_dwarf_argspec(struct uftrace_filter *filter,
 	/* XXX: since 'name' was not used here, abuse it as a linked list */
 	dwarf_filter->name = (void *)dwarf_argspec_list;
 	dwarf_argspec_list = dwarf_filter;
-
 	free(arg_str);
 	return dwarf_filter;
 }
@@ -189,10 +190,13 @@ struct uftrace_filter *find_auto_argspec(struct uftrace_filter *filter, struct u
 					 struct uftrace_dbg_info *dinfo,
 					 struct uftrace_filter_setting *setting)
 {
+	// printf(" while using --auto-args \n") ; 
 	struct uftrace_filter *auto_arg = NULL;
 
-	if (debug_info_has_argspec(dinfo))
+	if (debug_info_has_argspec(dinfo)){
+		// printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n") ; 
 		auto_arg = find_dwarf_argspec(filter, dinfo, false, setting);
+	}
 
 	if (auto_arg == NULL)
 		auto_arg = find_auto_args(&auto_argspec, filter->name);

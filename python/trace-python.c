@@ -288,6 +288,7 @@ static uint32_t get_new_sym_addr(const char *name, bool is_libcall)
 
 static void write_symtab(const char *dirname)
 {
+	printf(" in write_symtab ------------------------------\n" ) ; 
 	char *filename = NULL;
 	FILE *fp;
 	void *buf = (void *)symtab;
@@ -408,6 +409,7 @@ static void update_dbg_info(const char *name, uint64_t addr, const char *file, i
 
 static void write_dbginfo(const char *dirname)
 {
+	printf(" in write_dbginfo ------------------------------\n" ) ; 
 	char *filename = NULL;
 	FILE *fp;
 	void *buf = (void *)dbg_info;

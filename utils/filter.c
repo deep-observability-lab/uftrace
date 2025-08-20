@@ -160,11 +160,11 @@ struct uftrace_filter *uftrace_match_filter(uint64_t addr, struct rb_root *root,
 				print_trigger(tr);
 			return iter;
 		}
-
+		
 		if (iter->start > addr)
-			p = &parent->rb_left;
+		p = &parent->rb_left;
 		else
-			p = &parent->rb_right;
+		p = &parent->rb_right;
 	}
 	return NULL;
 }
@@ -173,76 +173,84 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 {
 	bool found = false;
 	struct uftrace_arg_spec *oarg, *narg;
-
+	
 	list_for_each_entry(oarg, arg_list, list) {
 		if (arg->type != oarg->type)
-			continue;
-
+		continue;
+		
 		switch (arg->type) {
-		case ARG_TYPE_INDEX:
-		case ARG_TYPE_FLOAT:
+			case ARG_TYPE_INDEX:
+			case ARG_TYPE_FLOAT:
 			if (arg->idx == oarg->idx)
-				found = true;
+			found = true;
 			break;
-		case ARG_TYPE_REG:
+			case ARG_TYPE_REG:
 			if (arg->reg_idx == oarg->reg_idx)
-				found = true;
+			found = true;
 			break;
-		case ARG_TYPE_STACK:
+			case ARG_TYPE_STACK:
 			if (arg->stack_ofs == oarg->stack_ofs)
-				found = true;
+			found = true;
 			break;
 		}
-
+		
 		if (found)
-			break;
+		break;
 	}
-
+	
 	if (found) {
 		/* do not overwrite exact match by regex match */
 		if (exact_match || !oarg->exact) {
 			free(oarg->type_name);
 			oarg->type_name = NULL;
-
+			
 			oarg->fmt = arg->fmt;
 			oarg->size = arg->size;
 			oarg->exact = exact_match;
 			oarg->type = arg->type;
 			oarg->reg_idx = arg->reg_idx;
 			oarg->struct_reg_cnt = arg->struct_reg_cnt;
-
+			// zahra add , not sure =) 	
+			narg->resolved_struct = arg->resolved_struct; 
+			narg->is_ptr = arg->is_ptr; 
+			//////////////////////////////
 			if (arg->type_name)
-				oarg->type_name = xstrdup(arg->type_name);
-
+			oarg->type_name = xstrdup(arg->type_name);
+			
 			if (arg->struct_reg_cnt) {
 				memcpy(oarg->struct_regs, arg->struct_regs,
-				       sizeof(arg->struct_regs));
+					sizeof(arg->struct_regs));
+				}
 			}
 		}
-	}
-	else {
-		narg = xmalloc(sizeof(*narg));
-		narg->idx = arg->idx;
-		narg->fmt = arg->fmt;
-		narg->size = arg->size;
-		narg->exact = exact_match;
-		narg->type = arg->type;
-		narg->reg_idx = arg->reg_idx;
-		narg->struct_reg_cnt = arg->struct_reg_cnt;
-
-		if (arg->type_name)
+		else {
+			narg = xmalloc(sizeof(*narg));
+			narg->idx = arg->idx;
+			narg->fmt = arg->fmt;
+			narg->size = arg->size;
+			narg->exact = exact_match;
+			narg->type = arg->type;
+			narg->reg_idx = arg->reg_idx;
+			narg->struct_reg_cnt = arg->struct_reg_cnt;
+			// zahra add , not sure =) 	
+			narg->resolved_struct = arg->resolved_struct; 
+			narg->is_ptr = arg->is_ptr; 
+			//////////////////////////////
+			if (arg->type_name)
 			narg->type_name = xstrdup(arg->type_name);
-		else
+			else
 			narg->type_name = NULL;
-
-		if (arg->struct_reg_cnt) {
-			memcpy(narg->struct_regs, arg->struct_regs, sizeof(arg->struct_regs));
+			
+			if (arg->struct_reg_cnt) {
+				memcpy(narg->struct_regs, arg->struct_regs, sizeof(arg->struct_regs));
+			}
+			
+			// if (arg->type_name && strstr(arg->type_name, "Point") != NULL) 
+			// 		printf("^^^^^^^^^^^^^^^^^^^ narg: %p arg: %p %s\n", narg,arg , narg->type_name); 
+			list_add_tail(&narg->list, &oarg->list);
 		}
-
-		list_add_tail(&narg->list, &oarg->list);
 	}
-}
-
+	
 /**
  * update_trigger - update the trigger flags and related filter data
  * @filter - trigger tree entry holding filter parameters
@@ -251,6 +259,7 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
  */
 void update_trigger(struct uftrace_filter *filter, struct uftrace_trigger *tr, bool exact_match)
 {
+	
 	filter->trigger.flags |= tr->flags;
 
 	if (tr->flags & TRIGGER_FL_CLEAR) {
@@ -323,6 +332,7 @@ static int update_filter(struct rb_root *root, struct uftrace_filter *filter,
 	unsigned long orig_flags = tr->flags;
 
 	if ((tr->flags & TRIGGER_FL_ARGUMENT) && list_empty(tr->pargs)) {
+		// printf("0000000000000000000000000000000000000000000000000000\n") ; 
 		auto_arg = find_auto_argspec(filter, tr, dinfo, setting);
 		if (auto_arg == NULL)
 			tr->flags &= ~TRIGGER_FL_ARGUMENT;
@@ -538,7 +548,9 @@ static int parse_argument_spec(char *str, struct uftrace_trigger *tr,
 		pr_use("skipping invalid argument: %s\n", str);
 		return -1;
 	}
-
+	// if (strstr(str, "Point") != NULL) 
+	// 	printf("lololllllllllllllll  parse_argument_spec **************************************** %s\n", str ) ; 	
+	// printf(" parse_argument_spec ----------------------------\n ") ; 
 	arg = parse_argspec(str, setting);
 	if (arg == NULL)
 		return -1;
@@ -553,7 +565,7 @@ static int parse_retval_spec(char *str, struct uftrace_trigger *tr,
 			     struct uftrace_filter_setting *setting)
 {
 	struct uftrace_arg_spec *arg;
-
+	// printf(" parse_retval_spec ----------------------------\n ") ; 
 	arg = parse_argspec(str, setting);
 	if (arg == NULL)
 		return -1;
@@ -574,7 +586,7 @@ static int parse_float_argument_spec(char *str, struct uftrace_trigger *tr,
 		pr_use("skipping invalid argument: %s\n", str);
 		return -1;
 	}
-
+	// printf(" parse_float_argument_spec ----------------------------\n ") ; 
 	arg = parse_argspec(str, setting);
 	if (arg == NULL)
 		return -1;
@@ -809,6 +821,32 @@ struct trigger_action_parser {
 	enum trigger_flag compat_flags; /* flags the action is restricted to */
 };
 
+
+static void mask_commas_in_braces(char *str)
+{
+	// printf("in mask --------------------------------\n") ; 
+	bool in_brace = false;
+
+	for (; *str; str++) {
+		if (*str == '{')
+			in_brace = true;
+		else if (*str == '}')
+			in_brace = false;
+		else if (in_brace && *str == ',')
+			*str = '%';  // placeholder
+	}
+}
+
+static void unmask_commas(char *str)
+{
+	// printf("in unmask --------------------------------\n") ; 
+	for (; *str; str++) {
+		if (*str == '%')
+			*str = ',';  // restore
+	}
+}
+
+
 static const struct trigger_action_parser actions[] = {
 	{
 		"arg",
@@ -897,15 +935,18 @@ static const struct trigger_action_parser actions[] = {
 	},
 };
 
+
 int setup_trigger_action(char *str, struct uftrace_trigger *tr, char **module,
 			 unsigned long orig_flags, struct uftrace_filter_setting *setting)
 {
+	// if (strstr(str, "Point") != NULL) {
+	// 	printf("1 ^^^^^^^^ setup_trigger_action *** str(before @ split): %s\n", str);
+	// }
 	char *pos = strchr(str, '@');
 	struct strv acts = STRV_INIT;
 	int ret = -1;
 	size_t i;
 	int j;
-
 	if (module != NULL)
 		*module = NULL;
 
@@ -913,9 +954,21 @@ int setup_trigger_action(char *str, struct uftrace_trigger *tr, char **module,
 		return 0;
 
 	*pos++ = '\0';
+	
+	// if (strstr(str, "Point") != NULL) {
+	// 	printf("2 ^^^^^^^^ setup_trigger_action *** str(before @ split): %s\n", str);
+	// }
+	mask_commas_in_braces(pos);  
 	strv_split(&acts, pos, ",");
 
+	// strv_for_each(&acts, pos, j) {
+	// 	if (strstr(pos, "Point") != NULL) {
+	// 			printf("$$$$$$$ setup_trigger_action *** acts[%d]: %s\n", j, pos);
+	// 	}
+	// }
+
 	strv_for_each(&acts, pos, j) {
+		unmask_commas(pos);  
 		for (i = 0; i < ARRAY_SIZE(actions); i++) {
 			const struct trigger_action_parser *action = &actions[i];
 
@@ -928,6 +981,10 @@ int setup_trigger_action(char *str, struct uftrace_trigger *tr, char **module,
 			if (action->parse(pos, tr, setting) < 0)
 				goto out;
 
+			// if (strstr(pos, "Point") != NULL) {
+			// 	// printf("$$$$$$$ setup_trigger_action *** acts[%d]: %s\n", j, pos);
+			// 	printf("--------------------- Parsing action: '%s' using parser: %s\n", pos, action->name);
+			// }		
 			break;
 		}
 
@@ -1022,7 +1079,13 @@ static void setup_trigger(char *filter_str, struct uftrace_sym_info *sinfo,
 	if (filter_str == NULL)
 		return;
 
+	// if (strstr(filter_str, "Point") != NULL) 
+	// printf("^^^^^^^^^^^^^^^ setup_trigger **************************************** filter_str: %s\n", filter_str);
+
 	strv_split(&filters, filter_str, ";");
+
+	// if (strstr(filter_str, "Point") != NULL) 
+	//  printf("setup_trigger ****************************************\n") ; 	
 
 	strv_for_each(&filters, name, j) {
 		LIST_HEAD(args);
@@ -1038,6 +1101,11 @@ static void setup_trigger(char *filter_str, struct uftrace_sym_info *sinfo,
 			.type = PATT_NONE,
 		};
 
+
+	// if (strstr(name, "Point") != NULL) 
+	// 	printf("setup_trigger name **************************************** %s\n", filter_str ) ; 	
+
+		// int setup_trigger_action(char *str,
 		if (setup_trigger_action(name, &tr, &module, flags, setting) < 0)
 			goto next;
 
@@ -1155,6 +1223,7 @@ void uftrace_setup_filter(char *filter_str, struct uftrace_sym_info *sinfo,
 			  struct uftrace_triggers_info *triggers,
 			  struct uftrace_filter_setting *setting)
 {
+	// printf("******************* uftrace_setup_filter ***************\n"); 
 	setup_trigger(filter_str, sinfo, triggers, TRIGGER_FL_FILTER, setting);
 }
 

@@ -70,6 +70,7 @@ static void setup_common_context(struct script_context *sc_ctx)
 
 static void setup_argument_context(bool is_retval, struct script_context *sc_ctx)
 {
+	printf(" setup_argument_context ----------------------- helllllllllllllllllllllllllll \n"); 
 	struct uftrace_arg_spec *spec;
 	void *data = sc_ctx->argbuf;
 	union script_arg_val val;
@@ -299,6 +300,7 @@ static int luajit_uftrace_exit(struct script_context *sc_ctx)
 
 static int luajit_uftrace_event(struct script_context *sc_ctx)
 {
+	
 	dllua_getglobal(L, "uftrace_event");
 	if (dllua_isnil(L, -1)) {
 		dllua_pop(L, 1);

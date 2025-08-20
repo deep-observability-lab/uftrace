@@ -316,7 +316,7 @@ static void pr_args(struct uftrace_fstack_args *args)
 	void *ptr = args->data;
 	size_t size;
 	int i = 0;
-
+	printf(" pr_args ----------------------- helllllllllllllllllllllllllll \n"); 
 	task = container_of(args, typeof(*task), args);
 	sessions = &task->h->sessions;
 
@@ -406,6 +406,9 @@ print_raw:
 
 			pr_out("  args[%d] %c%d: 0x%0*llx\n", i, ARG_SPEC_CHARS[spec->fmt],
 			       spec->size * 8, spec->size * 2, val);
+			
+			printf( " args[%d] %c%d: 0x%0*llx\n", i, ARG_SPEC_CHARS[spec->fmt],
+			       spec->size * 8, spec->size * 2, val); 
 
 			size = spec->size;
 		}
@@ -425,7 +428,7 @@ static void pr_retval(struct uftrace_fstack_args *args)
 
 	task = container_of(args, typeof(*task), args);
 	sessions = &task->h->sessions;
-
+	printf(" pr_retval ----------------------- helllllllllllllllllllllllllll \n"); 
 	list_for_each_entry(spec, args->args, list) {
 		/* skip argument info */
 		if (spec->idx != RETVAL_IDX)

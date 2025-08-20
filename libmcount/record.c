@@ -7,6 +7,9 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <inttypes.h> // For PRId64, PRIx32, etc.
+
+// #include <string.h>
 
 /* This should be defined before #include "utils.h" */
 #define PR_FMT "mcount"
@@ -20,10 +23,11 @@
 #include "utils/shmem.h"
 #include "utils/symbol.h"
 #include "utils/utils.h"
+#include "utils/dwarf.h"
 
 #define SHMEM_SESSION_FMT "/uftrace-%s-%d-%03d" /* session-id, tid, seq */
 
-#define ARG_STR_MAX 98
+#define ARG_STR_MAX 1000 // it was 98  =)
 
 static struct mcount_shmem_buffer *allocate_shmem_buffer(char *sess_id, size_t size, int tid,
 							 int idx)
@@ -405,6 +409,199 @@ void finish_mem_region(struct mcount_mem_regions *regions)
 	}
 }
 
+
+// void add_resolved_struct_dump(struct resolved_struct_type *resolved_struct,
+//                                void *ptr_to_struct)
+// {
+//     // if (!resolved_struct || !ptr_to_struct) {
+//     //     printf("(null struct)\n");
+//     //     return;
+//     // }
+//     printf("%s {\n", resolved_struct->type_name ? resolved_struct->type_name : "<anon>");
+
+//     for (int i = 0; i < resolved_struct->num_members; i++) {
+//         struct resolved_member *m = &resolved_struct->members[i];
+//         void *member_addr = (char *)ptr_to_struct + m->offset;
+
+//         printf("  %s : ", m->name ? m->name : "<anon>");
+
+//         // Decide how to print based on format and size
+//         switch (m->format) {
+//         case 'i': // integer
+//             if (m->size == 4) {
+//                 int val;
+//                 memcpy(&val, member_addr, sizeof(val));
+//                 printf("%d", val);
+//             }
+//             else if (m->size == 8) {
+//                 long long val;
+//                 memcpy(&val, member_addr, sizeof(val));
+//                 printf("%lld", val);
+//             }
+//             else if (m->size == 2) {
+//                 short val;
+//                 memcpy(&val, member_addr, sizeof(val));
+//                 printf("%d", (int)val);
+//             }
+//             else if (m->size == 1) {
+//                 char val;
+//                 memcpy(&val, member_addr, sizeof(val));
+//                 printf("%p", (int)val);
+//             }
+//             else {
+//                 printf("<unsupported int size %d>", m->size);
+//             }
+//             break;
+//         case 'f': // floating point
+//             // if (m->size == 4) {
+//             //     float val;
+//             //     memcpy(&val, member_addr, sizeof(val));
+//             //     printf("%f", val);
+//             // }
+//             // else if (m->size == 8) {
+//             //     double val;
+//             //     memcpy(&val, member_addr, sizeof(val));
+//             //     printf("%lf", val);
+//             // }
+//             // else {
+//                 printf("------------------ <unsupported float size %d>", m->size);
+//             // }
+//             break;
+
+//         case 'p': // pointer
+//             {
+//                 void *pval;
+//                 memcpy(&pval, member_addr, sizeof(pval));
+//                 printf("%p", pval);
+//             }
+//             break;
+
+//         default:
+//             printf("<unknown format '%c'>", m->format);
+//             break;
+//         }
+
+//         // Recursively print nested struct
+//         if (m->nested_type && member_addr) {
+//             printf(" ");
+//             add_resolved_struct_dump(m->nested_type, member_addr);
+//         }
+
+//         printf("\n");
+//     }
+
+//     printf("}\n");
+// }
+
+
+
+// append helper (safe, truncation-aware)
+static size_t buf_append(void *out_buf, size_t out_size, size_t pos, const char *fmt, ...) {
+    if (!out_buf || out_size == 0 || pos >= out_size) return pos;
+
+    char *dst = (char *)out_buf;
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(dst + pos, out_size - pos, fmt, ap);
+    va_end(ap);
+
+    if (n < 0) return pos;                   // ignore on error
+    if ((size_t)n >= (out_size - pos))       // truncated
+        return out_size;                     // clamp to "full"
+    return pos + (size_t)n;
+}
+
+
+/*
+ * Writes a textual dump of *ptr_to_struct into out_buf (void*).
+ * Returns total bytes "intended" to write, clamped at out_size on truncation.
+ */
+unsigned add_resolved_struct_dump(struct resolved_struct_type *resolved_struct,
+                                void *ptr_to_struct,
+                                void *out_buf, size_t out_size)
+{
+	
+    unsigned pos = 0;
+	
+    pos = buf_append(out_buf, out_size, pos, "%s {\n",
+        resolved_struct && resolved_struct->type_name ? resolved_struct->type_name : "<anon>");
+	
+		
+    if (!resolved_struct || !ptr_to_struct) {
+        pos = buf_append(out_buf, out_size, pos, "  (null)\n}\n");
+        return pos;
+    }
+
+	pos = buf_append(out_buf, out_size, pos, "$");
+    for (int i = 0; i < resolved_struct->num_members; i++) {
+        struct resolved_member *m = &resolved_struct->members[i];
+        void *member_addr = (char *)ptr_to_struct + m->offset;
+		
+        pos = buf_append(out_buf, out_size, pos, "  %s : ",
+                         m->name ? m->name : "<anon>");
+
+        switch (m->format) {
+        case 'i': {
+            if (m->size == 8) {
+                int64_t v; memcpy(&v, member_addr, sizeof v); 
+                pos = buf_append(out_buf, out_size, pos, "%" PRId64, v);
+            } else if (m->size == 4) {
+				
+                int32_t v; memcpy(&v, member_addr, sizeof v);
+                pos = buf_append(out_buf, out_size, pos, "%" PRId32, v);
+            } else if (m->size == 2) {
+                int16_t v; memcpy(&v, member_addr, sizeof v);
+                pos = buf_append(out_buf, out_size, pos, "%" PRId16, v);
+            } else if (m->size == 1) {
+                int8_t v; memcpy(&v, member_addr, sizeof v);
+                pos = buf_append(out_buf, out_size, pos, "%" PRId8, v);
+            } else {
+                pos = buf_append(out_buf, out_size, pos, "<unsupported int size %zu>", m->size);
+            }
+            break;
+        }
+
+        case 'p': {
+            void *pval; memcpy(&pval, member_addr, sizeof pval);
+            pos = buf_append(out_buf, out_size, pos, "%p", pval);
+            break;
+        }
+
+        // No-SSE safe: dump floats as hex bit patterns
+        case 'f': {
+            // if (m->size == 4) {
+            //     uint32_t bits; memcpy(&bits, member_addr, sizeof bits);
+            //     pos = buf_append(out_buf, out_size, pos, "0x%08" PRIx32, bits);
+            // } else if (m->size == 8) {
+            //     uint64_t bits; memcpy(&bits, member_addr, sizeof bits);
+            //     pos = buf_append(out_buf, out_size, pos, "0x%016" PRIx64, bits);
+            // } else {
+            //     pos = buf_append(out_buf, out_size, pos, "<unsupported float size %zu>", m->size);
+            // }
+			printf("--------!!!!!!!!!!!!!!!!! float \n"); 
+            break;
+        }
+
+        default:
+            pos = buf_append(out_buf, out_size, pos, "<unknown format '%c'>", m->format);
+            break;
+        }
+
+        // Recursively dump nested structs inline
+        if (m->nested_type && member_addr) {
+            pos = buf_append(out_buf, out_size, pos, " ");
+            // Continue writing into the SAME buffer
+            pos = add_resolved_struct_dump(m->nested_type, member_addr, out_buf, out_size);
+        }
+
+        pos = buf_append(out_buf, out_size, pos, "\n");
+    }
+    pos = buf_append(out_buf, out_size, pos, "}\0");
+	
+    return pos;
+}
+
+
 static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 			       struct mcount_arg_context *ctx)
 {
@@ -413,13 +610,18 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 	unsigned max_size = ARGBUF_SIZE - sizeof(size);
 	bool is_retval = !!ctx->retval;
 	void *ptr;
-
+	int mew=0;
+	void *saved_ptr ; 
 	ptr = argbuf + sizeof(total_size);
+	printf("in save_to_argbuf -----------------------------------------\n"); 
 	list_for_each_entry(spec, args_spec, list) {
-		if (is_retval != (spec->idx == RETVAL_IDX))
+		char *dst ; 
+		// printf("(((((((((((((((((((((((( fmt %d name %s spec indx %d\n",spec->fmt, spec->type_name, spec->idx); 
+		if (is_retval != (spec->idx == RETVAL_IDX)){  //////// wrong!!
+			// printf("we have breaks ------******** --address  %p  format %d\n", spec, spec->fmt);
 			continue;
-
-		if (spec->fmt == ARG_FMT_STRUCT) {
+		}
+		if (spec->fmt == ARG_FMT_STRUCT ) { //  spec->is_ptr==0
 			if (total_size + spec->size > max_size) {
 				/* just to make it fail */
 				total_size += spec->size;
@@ -428,15 +630,18 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 			ctx->val.p = ptr;
 		}
 
-		if (is_retval)
+		if (is_retval){
 			mcount_arch_get_retval(ctx, spec);
+		}
 		else
-			mcount_arch_get_arg(ctx, spec);
+		{
+			mcount_arch_get_arg(ctx, spec); 
+		}
 
 		if (spec->fmt == ARG_FMT_STR || spec->fmt == ARG_FMT_STD_STRING) {
 			unsigned short len;
 			char *str = ctx->val.p;
-
+			
 			if (spec->fmt == ARG_FMT_STD_STRING) {
 				/*
 				 * This is libstdc++ implementation dependent.
@@ -455,7 +660,7 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 				unsigned i;
 				char *dst = ptr + 2;
 				char buf[32];
-
+				// printf(" pointer to ptr for string condition ----- %s \n", ptr+2); 
 				if (!check_mem_region(ctx, (unsigned long)str)) {
 					len = snprintf(buf, sizeof(buf), "<%p>", str);
 					str = buf;
@@ -477,11 +682,13 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 						dst[i - 1] = '.';
 						dst[i] = '\0';
 					}
-					if (!dst[i])
+					if (!dst[i]) 
 						break;
 					len++;
 				}
+				// printf(" pointer to ptr for string condition ----- %p\n", ptr+2); 
 				/* store 2-byte length before string */
+				// printf("--------string case -------------- %s\n", dst ); 
 				*(unsigned short *)ptr = len;
 			}
 			else {
@@ -507,69 +714,155 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 			total_size += size;
 		}
 		else if (spec->fmt == ARG_FMT_STRUCT) {
-			/*
-			 * It already filled the argbuf in the
-			 * mcount_arch_get_arg/retval() above.
-			 */
-			size = ALIGN(spec->size, 4);
+			if (spec->is_ptr) {
+				unsigned short len = 0;
+				size_t avail = (max_size > 2) ? max_size - 2 : 0;
+				dst = ptr + 2;
+				if (spec->resolved_struct && avail) {
+					int intended = add_resolved_struct_dump(spec->resolved_struct, ctx->val.p, dst, avail);
+					// intended can be > avail-1 if truncated by snprintf
+					size_t written = strnlen(dst, avail); // bytes actually in buffer excluding the NUL
+					len = (uint16_t)written;
+					// memcpy(ptr, &len, sizeof(len));        // store length safely
+					*(unsigned short *)ptr = len;
+					size = ALIGN(written + 2, 4);
+					saved_ptr = ptr+2 ; 
+					// printf(" content of ptr when fmt = struct : %s  %p\n", saved_ptr, spec); 
+					spec->size = size ; 
+					/////////////////////////////////
+					// spec->fmt = ARG_FMT_STR;
+					// ctx->val.p = ptr+2 ;
+				} else {
+					uint16_t zero = 0;
+					memcpy(ptr, &zero, sizeof(zero));
+					size = ALIGN(2, 4);
+				}
+			} else {
+				size = ALIGN(spec->size, 4);
+			}
+
 		}
 		else {
+			// printf( " h1 argbuffffffffffffffffffffffff   %p and this is content %s\n", argbuf+6, argbuf+ 6 ); 
+			// printf(" pointer to ptr for string condition in else ----- address %p  content %s", ptr+2,ptr+2 ); 
 			size = ALIGN(spec->size, 4);
 			mcount_memcpy4(ptr, ctx->val.v, size);
+			// printf("----- after %s\n", ptr+2); 
+			// printf( " h2 argbufffffff  %d  %s \n", size,ctx->val.v ); 
 		}
 		ptr += size;
+		// if( mew ==1 ){
+		// }
 		total_size += size;
 	}
-
+	
+	// printf("add_resolved_struct_dump result: %s\n", saved_ptr);
 	if (total_size > max_size)
 		return -1U;
+		// printf("3 ------------- ---- size %d ------ total_size %d\n", ptr , size , total_size ) ; 
 
+	list_for_each_entry(spec, args_spec, list) {
+		if (spec->is_ptr == 1 ){
+			printf("------------ %d %p\n" , spec->fmt , spec); 
+		}
+	}
 	return total_size;
 }
+
+
+
+
+/* Dump the argbuf for a single rstack frame.
+ * Expected layout: [u32 total_size][data...]
+ * If the first field is a length-prefixed string/blob (u16 slen + bytes),
+ * we show that too.
+ */
+static void dump_argbuf_for_rstackk(struct mcount_thread_data *mtdp,
+                                   struct mcount_ret_stack *rs)
+{
+	
+    void *hdr = get_argbuf(mtdp, rs);  /* points to the u32 total_size */
+    if (!hdr) {
+        printf("argbuf: NULL (no arguments recorded)\n");
+        return;
+    }
+
+    unsigned total = (unsigned*)hdr;  /* total bytes starting at hdr (including this u32) */
+	unsigned short sizeofthis = (unsigned short *)(hdr + sizeof(unsigned)); 
+    printf("argbuf hdr=%p total=%u sizeof this one %d\n", (void *)hdr, total, sizeofthis);
+	
+	printf("%s\n", hdr+sizeof(unsigned short)+sizeof(unsigned)); 
+    if (total < sizeof(unsigned) || total > ARGBUF_SIZE) {
+		printf("argbuf: suspicious total size (%u)\n", total);
+        return;
+    }
+    unsigned char *data = (unsigned char *)(hdr + 1);
+    unsigned data_len = total - sizeof(unsigned);
+	
+} 
+
+
+
+// for (i = 0; i < max_size - total_size; i++) {
+						// 	printf("%c", dst[i]);
+						// 	if (!dst[i]){
+						// 		printf("-- %c",dst[i]); 
+						// 		break;
+						// 	}
+						// 	len++;
+						// }
+						// printf("------------------- len2 : %d\n", len);
+						// ptr += 2;
+
 
 void save_argument(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstack,
 		   struct list_head *args_spec, struct mcount_regs *regs)
 {
+	// printf("satart : save_argument &&&&&& mtdp  %p , rstack %p \n ", mtdp , rstack); 
 	void *argbuf = get_argbuf(mtdp, rstack);
 	unsigned size;
 	struct mcount_arg_context ctx;
-
+	
 	mcount_memset4(&ctx, 0, sizeof(ctx));
 	ctx.regs = regs;
 	ctx.stack_base = rstack->parent_loc;
 	ctx.regions = &mtdp->mem_regions;
 	ctx.arch = &mtdp->arch;
-
+	// printf("before save to argbuf ------ %s\n",argbuf ); 
+	printf("((((((((((((((((((((((((((((((((save_arg))))))))))))))))))))))))))))))))  \n") ; 
 	size = save_to_argbuf(argbuf, args_spec, &ctx);
+	
 	if (size == -1U) {
 		pr_warn("argument data is too big\n");
 		return;
 	}
-
 	*(unsigned *)argbuf = size;
+	// printf("after save to argbuf ------ %p %d\n",argbuf ,size); 
 	rstack->flags |= MCOUNT_FL_ARGUMENT;
 }
 
 void save_retval(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstack, long *retval)
 {
 	struct list_head *args_spec = rstack->pargs;
+	// printf("satart : save_retval &&&&&& mtdp  %p , rstack %p \n ", mtdp , rstack); 
 	void *argbuf = get_argbuf(mtdp, rstack);
 	unsigned size;
 	struct mcount_arg_context ctx;
-
 	mcount_memset4(&ctx, 0, sizeof(ctx));
 	ctx.retval = retval;
 	ctx.regions = &mtdp->mem_regions;
 	ctx.arch = &mtdp->arch;
-
+	// dump_argbuf_for_rstackk(mtdp, rstack);
 	size = save_to_argbuf(argbuf, args_spec, &ctx);
+	// printf("in return value ------------ previous value is : %d ", *(uint32_t *)argbuf); 
+
 	if (size == -1U) {
 		pr_warn("retval data is too big\n");
 		rstack->flags &= ~MCOUNT_FL_RETVAL;
 		return;
 	}
-
 	*(uint32_t *)argbuf = size;
+	printf("((((((((((((((((((((((((((((((((save_retval))))))))))))))))))))))))))))))))\n" ); 
 }
 
 static int save_proc_statm(void *ctx, void *buf)
@@ -1063,6 +1356,9 @@ static int record_ret_stack(struct mcount_thread_data *mtdp, enum uftrace_record
 	return 0;
 }
 
+
+
+
 /*
  * For performance reasons and time filter, it doesn't record trace data one at
  * a time.  Instead it usually writes the data when an EXIT record is ready so
@@ -1096,16 +1392,16 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 	int count = 0;
 
 #define SKIP_FLAGS (MCOUNT_FL_NORECORD | MCOUNT_FL_DISABLED)
-
+	
 	if (mrstack < mtdp->rstack)
 		return 0;
 
 	if (!(mrstack->flags & MCOUNT_FL_WRITTEN)) {
 		non_written_mrstack = mrstack;
+		if (!(non_written_mrstack->flags & SKIP_FLAGS)){
 
-		if (!(non_written_mrstack->flags & SKIP_FLAGS))
 			count++;
-
+		}
 		while (non_written_mrstack > mtdp->rstack) {
 			struct mcount_ret_stack *prev = non_written_mrstack - 1;
 
@@ -1117,8 +1413,9 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 
 				if (prev->flags & MCOUNT_FL_ARGUMENT) {
 					unsigned *argbuf_size;
-
 					argbuf_size = get_argbuf(mtdp, prev);
+					unsigned tsize = *argbuf_size;
+					printf(" record trace data ======***========== argbuf %s size %d\n",(char*)(argbuf_size), tsize); 
 					if (argbuf_size)
 						size += *argbuf_size;
 				}
@@ -1127,7 +1424,7 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 			non_written_mrstack = prev;
 		}
 	}
-
+	
 	if (mrstack->end_time)
 		count++; /* for exit */
 
@@ -1148,6 +1445,7 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 		non_written_mrstack++;
 	}
 
+
 	if (!(mrstack->flags & (MCOUNT_FL_WRITTEN | SKIP_FLAGS))) {
 		if (record_ret_stack(mtdp, UFTRACE_ENTRY, mrstack))
 			return 0;
@@ -1156,17 +1454,24 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 	}
 
 	if (mrstack->end_time) {
-		if (retval)
+		if (retval){
+			// zzzzzzzzzzzzzzzzzzzz
 			save_retval(mtdp, mrstack, retval);
-		else
-			mrstack->flags &= ~MCOUNT_FL_RETVAL;
-
+			// printf("afterrrrrrrrrrrrrrr------------------- \n"); 
+			// dump_argbuf_for_rstackk(mtdp, mrstack);
+		}
+		else{
+			mrstack->flags &= ~MCOUNT_FL_RETVAL;			
+		}
+		
 		if (record_ret_stack(mtdp, UFTRACE_EXIT, mrstack))
 			return 0;
-
+		
 		count--;
 	}
+	// 
 
+	
 	ASSERT(count == 0);
 	return 0;
 }

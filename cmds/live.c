@@ -471,8 +471,9 @@ int command_live(int argc, char *argv[], struct uftrace_opts *opts)
 
 	if (opts->pid)
 		return forward_options(opts);
-
+	// printf("======================================= start of record ==============================================\n") ; 
 	ret = command_record(argc, argv, opts);
+	// printf("======================================= end of record ==============================================\n") ; 
 	if (!can_skip_replay(opts, ret)) {
 		int ret2;
 

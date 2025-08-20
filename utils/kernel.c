@@ -737,6 +737,7 @@ void list_kernel_events(void)
 
 static int save_kernel_file(FILE *fp, const char *name)
 {
+	printf(" in record_perf_data ------------------------------\n" ) ; 
 	ssize_t len;
 	char buf[PATH_MAX];
 

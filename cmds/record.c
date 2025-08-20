@@ -2116,7 +2116,7 @@ static int do_main_loop(int ready[], struct uftrace_opts *opts, int pid)
 	setup_writers(&wd, opts);
 	start_tracing(&wd, opts, ready[1]);
 	close(ready[1]);
-
+	
 	while (!uftrace_done) {
 		struct pollfd pollfd = {
 			.fd = wd.pipefd,
@@ -2135,11 +2135,11 @@ static int do_main_loop(int ready[], struct uftrace_opts *opts, int pid)
 		if (pollfd.revents & (POLLERR | POLLHUP))
 			break;
 	}
-
+	printf("####################************************************\n"); 
 	ret = stop_tracing(&wd, opts);
 	finish_writers(&wd, opts);
-
 	write_symbol_files(&wd, opts);
+	
 	return ret;
 }
 
@@ -2262,6 +2262,7 @@ static int do_child_exec(int ready[], struct uftrace_opts *opts, int argc, char 
 
 int command_record(int argc, char *argv[], struct uftrace_opts *opts)
 {
+	printf("in command record -----------------------------------\n") ; 
 	int pid;
 	int ready[2];
 	int ret = -1;
