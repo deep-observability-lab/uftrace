@@ -1152,7 +1152,7 @@ void setup_rstack_list(struct uftrace_rstack_list *list)
 void add_to_rstack_list(struct uftrace_rstack_list *list, struct uftrace_record *rstack,
 			struct uftrace_fstack_args *args)
 {
-	printf(" add to rstack list ---------------------------------\n ") ; 
+	// printf(" add to rstack list ---------------------------------\n ") ; 
 	struct uftrace_rstack_list_node *node;
 
 	if (list_empty(&list->unused)) {
@@ -1287,7 +1287,7 @@ static int read_task_arg(struct uftrace_task_reader *task, struct uftrace_arg_sp
 	int rem;
 	if (spec->size == 0)
 		return 0;
-	printf("insss read_task_arg ************************************ spec.resolved_struct %p  fmt %d\n", spec->fmt) ; 
+	// printf("insss read_task_arg ************************************ spec.resolved_struct %p  fmt %d\n", spec->fmt) ; 
 	if (spec->fmt == ARG_FMT_STR || spec->fmt == ARG_FMT_STD_STRING) {
 		args->data = xrealloc(args->data, args->len + 2);
 		
@@ -1299,9 +1299,17 @@ static int read_task_arg(struct uftrace_task_reader *task, struct uftrace_arg_sp
 		args->len += 2;
 	}
 
-	if (spec->fmt == ARG_FMT_STRUCT )
-		printf("--------- spec format struct detected -------size%slen is : %d\n",spec->type_name, args->len ); 
-
+	if (spec->fmt == ARG_FMT_STRUCT ){
+		// printf("--------- spec format struct detected -------size%slen is : %d\n",spec->type_name, args->len ); 
+		args->data = xrealloc(args->data, args->len + 2);
+		
+		if (fread(args->data + args->len, 2, 1, fp) != 1) {
+			if (feof(fp))
+				return -1;
+		}
+		size = *(unsigned short *)(args->data + args->len);
+		args->len += 2;
+	}
 
 	if ( spec->fmt == ARG_FMT_INT_PTR ){
 		size = sizeof(int);
@@ -1336,7 +1344,6 @@ static int read_task_arg(struct uftrace_task_reader *task, struct uftrace_arg_sp
  */
 int read_task_args(struct uftrace_task_reader *task, struct uftrace_record *rstack, bool is_retval)
 {
-	
 	struct uftrace_session *sess;
 	struct uftrace_trigger tr = {};
 	struct uftrace_filter *fl;
@@ -1436,7 +1443,6 @@ static void save_task_event(struct uftrace_task_reader *task, void *buf, size_t 
 	task->args.args = (void *)1;
 	task->args.len = buflen;
 	task->args.data = xrealloc(task->args.data, buflen);
-
 	memcpy(task->args.data, buf, buflen);
 
 	/* ensure 8-byte alignment */
@@ -1569,6 +1575,7 @@ int read_task_ustack(struct uftrace_data *handle, struct uftrace_task_reader *ta
 		return -1;
 	
 	// does not matter : read from the file pointer --> fp of task 
+	// task -> ustack = task->fp ; 
 	if (__read_task_ustack(task) < 0) {
 		task->done = true;
 		return -1;
@@ -2122,6 +2129,7 @@ static int find_rstack_cpu(struct uftrace_kernel_reader *kernel, struct uftrace_
 static void __fstack_consume(struct uftrace_task_reader *task, struct uftrace_kernel_reader *kernel,
 			     int cpu)
 {
+	
 	struct uftrace_record *rstack = task->rstack;
 	struct uftrace_data *handle = task->h;
 
@@ -2141,7 +2149,7 @@ static void __fstack_consume(struct uftrace_task_reader *task, struct uftrace_ke
 			goto consume_perf_event;
 
 		ASSERT(node->args.data);
-
+		// printf("1 &&&&&&&&&&&&&&&&7 baaaaaaaaaaaaam *******************\n"); 
 		/* restore args/retval to task */
 		free(task->args.data);
 		task->args.args = node->args.args;
@@ -2151,16 +2159,19 @@ static void __fstack_consume(struct uftrace_task_reader *task, struct uftrace_ke
 	}
 
 	if (is_user_record(task, rstack)) {
+		// printf("2 &&&&&&&&&&&&&&&&7 baaaaaaaaaaaaam *******************\n"); 
 		task->valid = false;
 		if (task->rstack_list.count)
 			consume_first_rstack_list(&task->rstack_list);
 	}
 	else if (is_kernel_record(task, rstack)) {
+		printf("3 &&&&&&&&&&&&&&&&7 baaaaaaaaaaaaam *******************\n"); 
 		kernel->rstack_valid[cpu] = false;
 		if (kernel->rstack_list[cpu].count)
 			consume_first_rstack_list(&kernel->rstack_list[cpu]);
 	}
 	else if (is_event_record(task, rstack)) {
+		printf("4 &&&&&&&&&&&&&&&&7 baaaaaaaaaaaaam *******************\n"); 
 		if (rstack->addr == EVENT_ID_PERF_COMM) {
 			strncpy(task->t->comm, task->args.data, TASK_COMM_LAST);
 			task->t->comm[TASK_COMM_LAST] = '\0';
@@ -2181,6 +2192,7 @@ consume_extern_data:
 
 		/* restore args/retval to task */
 		free(task->args.data);
+		printf("5 &&&&&&&&&&&&&&&&7 baaaaaaaaaaaaam *******************\n"); 
 		task->args.data = xstrdup(extn->msg);
 		task->args.len = strlen(extn->msg);
 	}
@@ -2188,6 +2200,7 @@ consume_extern_data:
 		struct uftrace_perf_reader *perf;
 
 consume_perf_event:
+		printf("6 &&&&&&&&&&&&&&&&7 baaaaaaaaaaaaam *******************\n"); 
 		ASSERT(handle->last_perf_idx >= 0);
 		perf = &handle->perf[handle->last_perf_idx];
 
@@ -2318,6 +2331,8 @@ static void adjust_rstack_after_schedule(struct uftrace_data *handle,
 	pr_dbg3("task[%*d] estimate next record after schedule\n", TASK_ID_LEN, task->tid);
 }
 
+
+// booooooooooommmmmmmmmmmm
 static int __read_rstack(struct uftrace_data *handle, struct uftrace_task_reader **taskp,
 			 bool consume)
 {
@@ -2394,12 +2409,11 @@ static int __read_rstack(struct uftrace_data *handle, struct uftrace_task_reader
 			source = EXTERN;
 		}
 	}
-
+	 
 	switch (source) {
 	case USER:
 		utask->rstack = &utask->ustack;
 		task = utask;
-
 		/* subsequent EXIT records might have inverted timestamp */
 		if (handle->hdr.feat_mask & ESTIMATE_RETURN && task->timestamp_estimate != 0) {
 			if (task->rstack->type == UFTRACE_EXIT &&

@@ -96,6 +96,7 @@ void prepare_shmem_buffer(struct mcount_thread_data *mtdp)
 
 static void get_new_shmem_buffer(struct mcount_thread_data *mtdp)
 {
+	// printf(" in get_new_shmem_buffer ========================================\n"); 
 	char buf[128];
 	struct mcount_shmem *shmem = &mtdp->shmem;
 	struct mcount_shmem_buffer *curr_buf = NULL;
@@ -186,7 +187,7 @@ reuse:
 static void finish_shmem_buffer(struct mcount_thread_data *mtdp, int idx)
 {
 	char buf[64];
-
+	printf("!!!!!!!!!!!!!!!!!!!!! in finish_shmem_buffer\n"); 
 	snprintf(buf, sizeof(buf), SHMEM_SESSION_FMT, mcount_session_name(), mcount_gettid(mtdp),
 		 idx);
 
@@ -195,11 +196,10 @@ static void finish_shmem_buffer(struct mcount_thread_data *mtdp, int idx)
 
 void clear_shmem_buffer(struct mcount_thread_data *mtdp)
 {
+	printf("!!!!!!!!!!!!!!!!!!!!! in clear_shmem_buffer\n"); 
 	struct mcount_shmem *shmem = &mtdp->shmem;
 	int i;
-
 	pr_dbg2("releasing all shmem buffers for task %d\n", mcount_gettid(mtdp));
-
 	for (i = 0; i < shmem->nr_buf; i++)
 		munmap(shmem->buffer[i], shmem_bufsize);
 
@@ -210,6 +210,7 @@ void clear_shmem_buffer(struct mcount_thread_data *mtdp)
 
 void shmem_finish(struct mcount_thread_data *mtdp)
 {
+	printf("!!!!!!!!!!!!!!!!!!!!! in shmem_finish\n"); 
 	struct mcount_shmem *shmem = &mtdp->shmem;
 	struct mcount_shmem_buffer *curr_buf;
 	int curr = shmem->curr;
@@ -522,7 +523,6 @@ unsigned add_resolved_struct_dump(struct resolved_struct_type *resolved_struct,
 {
 	
     unsigned pos = 0;
-	
     pos = buf_append(out_buf, out_size, pos, "%s {\n",
         resolved_struct && resolved_struct->type_name ? resolved_struct->type_name : "<anon>");
 	
@@ -532,7 +532,6 @@ unsigned add_resolved_struct_dump(struct resolved_struct_type *resolved_struct,
         return pos;
     }
 
-	pos = buf_append(out_buf, out_size, pos, "$");
     for (int i = 0; i < resolved_struct->num_members; i++) {
         struct resolved_member *m = &resolved_struct->members[i];
         void *member_addr = (char *)ptr_to_struct + m->offset;
@@ -613,7 +612,7 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 	int mew=0;
 	void *saved_ptr ; 
 	ptr = argbuf + sizeof(total_size);
-	printf("in save_to_argbuf -----------------------------------------\n"); 
+	// printf("in save_to_argbuf -----------------------------------------\n"); 
 	list_for_each_entry(spec, args_spec, list) {
 		char *dst ; 
 		// printf("(((((((((((((((((((((((( fmt %d name %s spec indx %d\n",spec->fmt, spec->type_name, spec->idx); 
@@ -725,9 +724,9 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 					len = (uint16_t)written;
 					// memcpy(ptr, &len, sizeof(len));        // store length safely
 					*(unsigned short *)ptr = len;
+					// printf("@@@@@@@ where size is in @@@@@@@@@@ %p size: %d\n",ptr,*(unsigned short *)ptr); 
 					size = ALIGN(written + 2, 4);
-					saved_ptr = ptr+2 ; 
-					// printf(" content of ptr when fmt = struct : %s  %p\n", saved_ptr, spec); 
+					saved_ptr = ptr+2 ; 					
 					spec->size = size ; 
 					/////////////////////////////////
 					// spec->fmt = ARG_FMT_STR;
@@ -751,8 +750,6 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 			// printf( " h2 argbufffffff  %d  %s \n", size,ctx->val.v ); 
 		}
 		ptr += size;
-		// if( mew ==1 ){
-		// }
 		total_size += size;
 	}
 	
@@ -761,11 +758,11 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 		return -1U;
 		// printf("3 ------------- ---- size %d ------ total_size %d\n", ptr , size , total_size ) ; 
 
-	list_for_each_entry(spec, args_spec, list) {
-		if (spec->is_ptr == 1 ){
-			printf("------------ %d %p\n" , spec->fmt , spec); 
-		}
-	}
+	// list_for_each_entry(spec, args_spec, list) {
+	// 	if (spec->is_ptr == 1 ){
+	// 		printf("list for each ------------ %d %p\n" , spec->fmt , spec); 
+	// 	}
+	// }
 	return total_size;
 }
 
@@ -829,15 +826,15 @@ void save_argument(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rst
 	ctx.regions = &mtdp->mem_regions;
 	ctx.arch = &mtdp->arch;
 	// printf("before save to argbuf ------ %s\n",argbuf ); 
-	printf("((((((((((((((((((((((((((((((((save_arg))))))))))))))))))))))))))))))))  \n") ; 
+	// printf("((((((((((((((((((((((((((((((((save_arg))))))))))))))))))))))))))))))))  \n") ; 
 	size = save_to_argbuf(argbuf, args_spec, &ctx);
 	
 	if (size == -1U) {
 		pr_warn("argument data is too big\n");
 		return;
 	}
-	*(unsigned *)argbuf = size;
-	// printf("after save to argbuf ------ %p %d\n",argbuf ,size); 
+	*(unsigned *)argbuf = size; 
+	// printf("after save_to_argbuf ----------------------- address %p   total size : %d   size : %d\n", argbuf, *(unsigned*)argbuf,*(unsigned short *)(argbuf+4)); 
 	rstack->flags |= MCOUNT_FL_ARGUMENT;
 }
 
@@ -862,7 +859,7 @@ void save_retval(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstac
 		return;
 	}
 	*(uint32_t *)argbuf = size;
-	printf("((((((((((((((((((((((((((((((((save_retval))))))))))))))))))))))))))))))))\n" ); 
+	// printf("((((((((((((((((((((((((((((((((save_retval))))))))))))))))))))))))))))))))\n" ); 
 }
 
 static int save_proc_statm(void *ctx, void *buf)
@@ -1162,7 +1159,7 @@ static struct mcount_shmem_buffer *get_shmem_buffer(struct mcount_thread_data *m
 	struct mcount_shmem *shmem = &mtdp->shmem;
 	struct mcount_shmem_buffer *curr_buf;
 	size_t maxsize = (size_t)shmem_bufsize - sizeof(**shmem->buffer);
-
+	// printf("====================== this is max size : %d\n", maxsize); 
 	if (unlikely(shmem->curr == -1 || shmem->buffer == NULL))
 		goto get_buffer;
 
@@ -1204,7 +1201,7 @@ static int record_event(struct mcount_thread_data *mtdp, struct mcount_event *ev
 		return mtdp->shmem.done ? 0 : -1;
 
 	rec = (void *)(curr_buf->data + curr_buf->size);
-
+	// printf("$$$$$$$$$$$$$$$$$$!!!!!!!!!!! in record_event !!!!!!!!!!!$$$$$$$$$$$$$$$$$$ \n"); 
 	/*
 	 * instead of set bit fields, do the bit operations manually.
 	 * this would be good for both performance and portability,
@@ -1262,13 +1259,13 @@ static int record_ret_stack(struct mcount_thread_data *mtdp, enum uftrace_record
 		}
 	}
 
+	// does not got executed 
 	if (type == UFTRACE_EXIT && unlikely(mrstack->nr_events)) {
 		int i;
 		unsigned evidx;
 		struct mcount_event *event;
 
 		argbuf = get_argbuf(mtdp, mrstack) + mrstack->event_idx;
-
 		for (i = 0; i < mrstack->nr_events; i++) {
 			evidx = mrstack->nr_events - i - 1;
 			event = get_event_pointer(argbuf, evidx);
@@ -1279,7 +1276,6 @@ static int record_ret_stack(struct mcount_thread_data *mtdp, enum uftrace_record
 			/* save read2 trigger before exit record */
 			record_event(mtdp, event);
 		}
-
 		mrstack->nr_events = 0;
 		argbuf = NULL;
 	}
@@ -1289,6 +1285,7 @@ static int record_ret_stack(struct mcount_thread_data *mtdp, enum uftrace_record
 		argbuf = get_argbuf(mtdp, mrstack);
 		if (argbuf)
 			size += *(unsigned *)argbuf;
+		// printf("+++++------------------ %p  size_total %d size: %d\n",argbuf,*(unsigned *)argbuf,*(unsigned *)(argbuf+4)); 
 	}
 
 	curr_buf = get_shmem_buffer(mtdp, size);
@@ -1319,15 +1316,22 @@ static int record_ret_stack(struct mcount_thread_data *mtdp, enum uftrace_record
 	buf[1] = rec;
 
 	curr_buf->size += sizeof(*frstack);
+	// printf( "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ current buffer %p, buff size: %d\n" , curr_buf, curr_buf->size) ; 
 	mrstack->flags |= MCOUNT_FL_WRITTEN;
 
 	if (argbuf) {
-		unsigned int *ptr = (void *)curr_buf->data + curr_buf->size;
-
+		void *ptr = (void *)curr_buf->data + curr_buf->size;
+		// unsigned int : i change it to void* 
 		size -= sizeof(*frstack);
-
+		// printf("1 EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\n"); 
 		mcount_memcpy4(ptr, argbuf + 4, size);
-
+		// printf( "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! %s \n",ptr+sizeof(unsigned short)); 
+		// printf( "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ %s \n", argbuf +sizeof(unsigned )+sizeof(unsigned short)); 
+		// printf( "@@@@@@@@@@@@@@@@@in record_ret_stack @@@@@@@@@@@@@@@@@@@@@@@@@@@ %p\n",ptr); 
+		// int ii=0 ; 
+		// for(ii=0 ;ii< size; ii++)
+		// 	printf("%c",*(char*)(argbuf+6+ii)); 
+		// printf("\n");
 		curr_buf->size += ALIGN(size, 8);
 	}
 
@@ -1340,7 +1344,8 @@ static int record_ret_stack(struct mcount_thread_data *mtdp, enum uftrace_record
 		struct mcount_event *event;
 
 		argbuf = get_argbuf(mtdp, mrstack) + mrstack->event_idx;
-
+		// printf("+++++------------------ %p  size_total %d size: %d\n",argbuf,*(unsigned *)argbuf,*(unsigned *)(argbuf+4)); 
+		// printf( "$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ %s \n", argbuf +sizeof(unsigned )+sizeof(unsigned short)); 
 		for (i = 0; i < mrstack->nr_events; i++) {
 			evidx = mrstack->nr_events - i - 1;
 			event = get_event_pointer(argbuf, evidx);
@@ -1357,11 +1362,9 @@ static int record_ret_stack(struct mcount_thread_data *mtdp, enum uftrace_record
 }
 
 
-
-
 /*
  * For performance reasons and time filter, it doesn't record trace data one at
- * a time.  Instead it usually writes the data when an EXIT record is ready so
+ * a time. Instead it usually writes the data when an EXIT record is ready so
  * it needs to record ENTRY data in the current and may in the parent functions.
  *
  * For example, if it has a time filter for 1 usec.
@@ -1390,7 +1393,7 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 	struct uftrace_record *frstack;
 	size_t size = 0;
 	int count = 0;
-
+	 
 #define SKIP_FLAGS (MCOUNT_FL_NORECORD | MCOUNT_FL_DISABLED)
 	
 	if (mrstack < mtdp->rstack)
@@ -1415,7 +1418,7 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 					unsigned *argbuf_size;
 					argbuf_size = get_argbuf(mtdp, prev);
 					unsigned tsize = *argbuf_size;
-					printf(" record trace data ======***========== argbuf %s size %d\n",(char*)(argbuf_size), tsize); 
+					// printf(" record trace data ======***========== argbuf %s size %d\n",(char*)(argbuf_size), tsize); 
 					if (argbuf_size)
 						size += *argbuf_size;
 				}
@@ -1435,6 +1438,7 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 
 	while (non_written_mrstack && non_written_mrstack < mrstack) {
 		if (!(non_written_mrstack->flags & SKIP_FLAGS)) {
+			// printf("2  rrrrrrrrrrrrrrr------------------- \n"); 
 			if (record_ret_stack(mtdp, UFTRACE_ENTRY, non_written_mrstack)) {
 				mtdp->shmem.losts += count - 1;
 				return 0;
@@ -1447,6 +1451,7 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 
 
 	if (!(mrstack->flags & (MCOUNT_FL_WRITTEN | SKIP_FLAGS))) {
+		// printf("1  rrrrrrrrrrrrrrr------------------- \n"); 
 		if (record_ret_stack(mtdp, UFTRACE_ENTRY, mrstack))
 			return 0;
 
@@ -1463,7 +1468,7 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 		else{
 			mrstack->flags &= ~MCOUNT_FL_RETVAL;			
 		}
-		
+		// printf("3  rrrrrrrrrrrrrrr------------------- \n");
 		if (record_ret_stack(mtdp, UFTRACE_EXIT, mrstack))
 			return 0;
 		

@@ -925,8 +925,9 @@ static void dump_chrome_task_rstack(struct uftrace_dump_ops *ops, struct uftrace
 
 		if (frs->more && show_args) {
 			str_mode |= NEEDS_PAREN | HAS_MORE;
+			// printf("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ dump_chrome_task_rstack\n"); 
 			get_argspec_string(task, spec_buf, sizeof(spec_buf), str_mode);
-			pr_out(",\"args\":{\"arguments\":\"%s\"}}", spec_buf);
+			pr_out(",\"args\":{\"arguments\":\"%s\"}}", spec_buf);;
 		}
 		else
 			pr_out("}");
@@ -947,6 +948,7 @@ static void dump_chrome_task_rstack(struct uftrace_dump_ops *ops, struct uftrace
 
 		if (frs->more && show_args) {
 			str_mode |= IS_RETVAL | HAS_MORE;
+			// printf("2 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ dump_chrome_task_rstack\n");
 			get_argspec_string(task, spec_buf, sizeof(spec_buf), str_mode);
 			pr_out(",\"args\":{\"retval\":\"%s\"}}", spec_buf);
 		}

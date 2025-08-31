@@ -1255,7 +1255,7 @@ void mcount_entry_filter_record(struct mcount_thread_data *mtdp, struct mcount_r
 			 * using the MCOUNT_FL_DISABLED flag.
 			 */
 			if (unlikely(mtdp->enable_cached)){
-				
+				printf("15 -------------- check for prev before ----- %p ---\n", rstack); 
 				record_trace_data(mtdp, rstack, NULL);
 			}
 		}

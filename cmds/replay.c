@@ -431,7 +431,7 @@ void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len
 	void *data = task->args.data;
 	struct list_head *arg_list = task->args.args;
 	struct uftrace_arg_spec *spec;
-	printf("############### $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$44 ####### %p \n",data); 
+	// printf("############### $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$44 ####### %p \n",data); 
 	union {
 		long i;
 		void *p;
@@ -706,11 +706,11 @@ void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len
 			if (spec->is_ptr && spec->resolved_struct){
 				unsigned short slen;
 				memcpy(&slen, data, 2);
-				// printf(" in replay .c get_argspec_string *************************** this is slen : %p\n", spec); 
+				// printf(" in replay .c get_argspec_string **** this is data : %p\n", data); 
 				str = xmalloc(slen + 1);
 				memcpy(str, data + 2, slen);
 				str[slen] = '\0';
-				printf( " what is stored at str is ----------------------- %s and size is %d \n", str , slen ) ; 
+				// printf( " what is stored at str is ----------------------- %s and size is %d \n", str , slen ) ; 
 				unsigned j ; 
 				
 				{
@@ -881,6 +881,7 @@ static int print_graph_rstack(struct uftrace_data *handle, struct uftrace_task_r
 
 		if (rstack->more && opts->show_args)
 			str_mode |= HAS_MORE;
+
 		get_argspec_string(task, args, sizeof(args), str_mode);
 
 		fstack = fstack_get(task, task->stack_count - 1);
@@ -1218,7 +1219,7 @@ int command_replay(int argc, char *argv[], struct uftrace_opts *opts)
 		if (format_mode == FORMAT_HTML)
 		pr_out(HTML_HEADER);
 	
-	printf(" meta ________________________________ replay________________________________________\n"); 
+	
 	if (!opts->flat && peek_rstack(&handle, &task) == 0){
 		print_header(&output_fields, "#", "FUNCTION", 1, false);
 	}
@@ -1248,9 +1249,9 @@ int command_replay(int argc, char *argv[], struct uftrace_opts *opts)
 
 		if (opts->flat)
 			ret = print_flat_rstack(&handle, task, opts);
-		else
+		else{
 			ret = print_graph_rstack(&handle, task, opts);
-
+		}
 		if (ret)
 			break;
 	}

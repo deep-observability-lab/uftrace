@@ -531,6 +531,7 @@ static void write_buffer_file(const char *dirname, struct buf_list *buf)
 {
 	int fd;
 	char *filename;
+	// printf("$$$$$$$$$$$$$$$$$$44 in write_buffer_file $$$$$$$$$$$$$$444\n"); 
 	struct mcount_shmem_buffer *shmbuf = buf->shmem_buf;
 
 	filename = make_disk_name(dirname, buf->tid);
@@ -548,13 +549,13 @@ static void write_buffer_file(const char *dirname, struct buf_list *buf)
 static void write_buffer(struct buf_list *buf, struct uftrace_opts *opts, int sock)
 {
 	struct mcount_shmem_buffer *shmbuf = buf->shmem_buf;
-
+	
 	if (!opts->host)
 		write_buffer_file(opts->dirname, buf);
 	else
 		send_trace_data(sock, buf->tid, shmbuf->data, shmbuf->size);
-
 	shmbuf->size = 0;
+	// printf("$$$$$$$$$$$$$$$$$$44 in write_buffer $$$$$$$$$$$$$$444 %p\n",shmbuf->data); 
 }
 
 struct writer_arg {
@@ -574,7 +575,7 @@ static void write_buf_list(struct list_head *buf_head, struct uftrace_opts *opts
 			   struct writer_arg *warg)
 {
 	struct buf_list *buf;
-
+	// printf("$$$$$$$$$$$$$$$$$$44 in write_buffer_list $$$$$$$$$$$$$$444\n"); 
 	list_for_each_entry(buf, buf_head, list) {
 		struct mcount_shmem_buffer *shmbuf = buf->shmem_buf;
 
@@ -787,7 +788,7 @@ static void copy_to_buffer(struct mcount_shmem_buffer *shm, char *sess_id)
 {
 	struct buf_list *buf = NULL;
 	struct writer_arg *writer;
-
+	// printf("$$$$$$$$$$$$$$$$$$44 in copy_to_buffer $$$$$$$$$$$$$$444\n"); 
 	pthread_mutex_lock(&free_list_lock);
 	if (!list_empty(&buf_free_list)) {
 		buf = list_first_entry(&buf_free_list, struct buf_list, list);
@@ -804,6 +805,7 @@ static void copy_to_buffer(struct mcount_shmem_buffer *shm, char *sess_id)
 	}
 
 	buf->shmem_buf = shm;
+	
 	parse_msg_id(sess_id, NULL, &buf->tid, NULL);
 
 	pthread_mutex_lock(&write_list_lock);
@@ -817,7 +819,6 @@ static void copy_to_buffer(struct mcount_shmem_buffer *shm, char *sess_id)
 	}
 	if (list_no_entry(writer, &writer_list, list)) {
 		int kick = 1;
-
 		/* no writer is dealing with the tid */
 		list_add_tail(&buf->list, &buf_write_list);
 		if (write(thread_ctl[1], &kick, sizeof(kick)) < 0 && !buf_done)
@@ -886,20 +887,17 @@ static void stop_all_writers(void)
 static void record_remaining_buffer(struct uftrace_opts *opts, int sock)
 {
 	struct buf_list *buf;
-
+	// printf("$$$$$$$$$$$$$$$$$$44 in record_remaining_buffer $$$$$$$$$$$$$$444\n"); 
 	/* called after all writers gone, no lock is needed */
 	while (!list_empty(&buf_write_list)) {
 		buf = list_first_entry(&buf_write_list, struct buf_list, list);
 		write_buffer(buf, opts, sock);
 		munmap(buf->shmem_buf, opts->bufsize);
-
 		list_del(&buf->list);
 		free(buf);
 	}
-
 	while (!list_empty(&buf_free_list)) {
 		buf = list_first_entry(&buf_free_list, struct buf_list, list);
-
 		list_del(&buf->list);
 		free(buf);
 	}
@@ -2135,7 +2133,7 @@ static int do_main_loop(int ready[], struct uftrace_opts *opts, int pid)
 		if (pollfd.revents & (POLLERR | POLLHUP))
 			break;
 	}
-	printf("####################************************************\n"); 
+	// printf("####################************************************\n"); 
 	ret = stop_tracing(&wd, opts);
 	finish_writers(&wd, opts);
 	write_symbol_files(&wd, opts);
@@ -2262,7 +2260,7 @@ static int do_child_exec(int ready[], struct uftrace_opts *opts, int argc, char 
 
 int command_record(int argc, char *argv[], struct uftrace_opts *opts)
 {
-	printf("in command record -----------------------------------\n") ; 
+	// printf("in command record -----------------------------------\n") ; 
 	int pid;
 	int ready[2];
 	int ret = -1;

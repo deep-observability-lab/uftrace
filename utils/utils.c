@@ -142,7 +142,7 @@ int writev_all(int fd, struct iovec *iov, int count)
 int fwrite_all(const void *buf, size_t size, FILE *fp)
 {
 	size_t ret;
-	printf("in fwrite_all -----------------------------\n"); 
+	// printf("in fwrite_all -----------------------------\n"); 
 	while (size) {
 		if (feof(fp))
 			return -1;
