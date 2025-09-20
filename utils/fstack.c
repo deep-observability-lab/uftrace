@@ -229,9 +229,9 @@ static int setup_filters(struct uftrace_session *s, void *arg)
 {
 	struct uftrace_filter_setting *setting = arg;
 
-	fstack_triggers.root = s->filters;
+	fstack_triggers.root = s->filter_info.root;
 	uftrace_setup_filter(setting->info_str, &s->sym_info, &fstack_triggers, setting);
-	s->filters = fstack_triggers.root;
+	s->filter_info.root = fstack_triggers.root;
 	return 0;
 }
 
@@ -239,9 +239,9 @@ static int setup_trigger(struct uftrace_session *s, void *arg)
 {
 	struct uftrace_filter_setting *setting = arg;
 
-	fstack_triggers.root = s->filters;
+	fstack_triggers.root = s->filter_info.root;
 	uftrace_setup_trigger(setting->info_str, &s->sym_info, &fstack_triggers, setting);
-	s->filters = fstack_triggers.root;
+	s->filter_info.root = fstack_triggers.root;
 	return 0;
 }
 
@@ -249,9 +249,9 @@ static int setup_callers(struct uftrace_session *s, void *arg)
 {
 	struct uftrace_filter_setting *setting = arg;
 
-	fstack_triggers.root = s->filters;
+	fstack_triggers.root = s->filter_info.root;
 	uftrace_setup_caller_filter(setting->info_str, &s->sym_info, &fstack_triggers, setting);
-	s->filters = fstack_triggers.root;
+	s->filter_info.root = fstack_triggers.root;
 	return 0;
 }
 
@@ -259,9 +259,9 @@ static int setup_hides(struct uftrace_session *s, void *arg)
 {
 	struct uftrace_filter_setting *setting = arg;
 
-	fstack_triggers.root = s->filters;
+	fstack_triggers.root = s->filter_info.root;
 	uftrace_setup_hide_filter(setting->info_str, &s->sym_info, &fstack_triggers, setting);
-	s->filters = fstack_triggers.root;
+	s->filter_info.root = fstack_triggers.root;
 	return 0;
 }
 
@@ -269,16 +269,16 @@ static int setup_locs(struct uftrace_session *s, void *arg)
 {
 	struct uftrace_filter_setting *setting = arg;
 
-	fstack_triggers.root = s->filters;
+	fstack_triggers.root = s->filter_info.root;
 	uftrace_setup_loc_filter(setting->info_str, &s->sym_info, &fstack_triggers, setting);
-	s->filters = fstack_triggers.root;
+	s->filter_info.root = fstack_triggers.root;
 	return 0;
 }
 
 static int count_filters(struct uftrace_session *s, void *arg)
 {
 	int *count = arg;
-	struct rb_node *node = rb_first(&s->filters);
+	struct rb_node *node = rb_first(&s->filter_info.root);
 
 	while (node) {
 		(*count)++;
@@ -289,19 +289,19 @@ static int count_filters(struct uftrace_session *s, void *arg)
 
 static int count_callers(struct uftrace_session *s, void *arg)
 {
-	*(int *)arg += uftrace_count_filter(&s->filters, TRIGGER_FL_CALLER);
+	*(int *)arg += uftrace_count_filter(&s->filter_info, TRIGGER_FL_CALLER);
 	return 0;
 }
 
 static int count_hides(struct uftrace_session *s, void *arg)
 {
-	*(int *)arg += uftrace_count_filter(&s->filters, TRIGGER_FL_HIDE);
+	*(int *)arg += uftrace_count_filter(&s->filter_info, TRIGGER_FL_HIDE);
 	return 0;
 }
 
 static int count_locs(struct uftrace_session *s, void *arg)
 {
-	*(int *)arg += uftrace_count_filter(&s->filters, TRIGGER_FL_LOC);
+	*(int *)arg += uftrace_count_filter(&s->filter_info, TRIGGER_FL_LOC);
 	return 0;
 }
 
@@ -411,16 +411,12 @@ static int build_fixup_filter(struct uftrace_session *s, void *arg)
 		.ptype = PATT_SIMPLE,
 		.auto_args = false,
 	};
-	struct uftrace_triggers_info fixups = {
-		.root = s->fixups,
-	};
 
 	pr_dbg("fixup for some special functions\n");
 
 	for (i = 0; i < ARRAY_SIZE(fixup_syms); i++) {
-		uftrace_setup_trigger((char *)fixup_syms[i], &s->sym_info, &fixups, &setting);
+		uftrace_setup_trigger(fixup_syms[i], &s->sym_info, &s->fixups, &setting);
 	}
-	s->fixups = fixups.root;
 	return 0;
 }
 
@@ -439,13 +435,9 @@ static void fstack_prepare_fixup(struct uftrace_data *handle)
 static int build_arg_spec(struct uftrace_session *s, void *arg)
 {
 	struct uftrace_filter_setting *setting = arg;
-	struct uftrace_triggers_info triggers = {
-		.root = s->filters,
-	};
 
 	if (setting->info_str) {
-		uftrace_setup_argument(setting->info_str, &s->sym_info, &triggers, setting);
-		s->filters = triggers.root;
+		uftrace_setup_argument(setting->info_str, &s->sym_info, &s->filter_info, setting);
 	}
 
 	session_setup_dlopen_argspec(s, setting, false);
@@ -455,13 +447,9 @@ static int build_arg_spec(struct uftrace_session *s, void *arg)
 static int build_ret_spec(struct uftrace_session *s, void *arg)
 {
 	struct uftrace_filter_setting *setting = arg;
-	struct uftrace_triggers_info triggers = {
-		.root = s->filters,
-	};
 
 	if (setting->info_str) {
-		uftrace_setup_retval(setting->info_str, &s->sym_info, &triggers, setting);
-		s->filters = triggers.root;
+		uftrace_setup_retval(setting->info_str, &s->sym_info, &s->filter_info, setting);
 	}
 
 	session_setup_dlopen_argspec(s, setting, true);
@@ -654,9 +642,9 @@ int fstack_entry(struct uftrace_task_reader *task, struct uftrace_record *rstack
 			}
 		}
 
-		uftrace_match_filter(addr, &sess->filters, tr);
+		uftrace_match_filter(addr, &sess->filter_info, tr);
 
-		if (tr->flags & TRIGGER_FL_FILTER && tr->cond.idx && task->args.args &&
+		if ((tr->flags & TRIGGER_FL_CONDITION) && task->args.args &&
 		    !list_empty(task->args.args)) {
 			struct list_head *arg_list = task->args.args;
 			struct uftrace_arg_spec *spec;
@@ -888,7 +876,7 @@ static int fstack_check_skip(struct uftrace_task_reader *task, struct uftrace_re
 		addr = get_kernel_address(&fsess->sym_info, addr);
 	}
 
-	uftrace_match_filter(addr, &sess->filters, &tr);
+	uftrace_match_filter(addr, &sess->filter_info, &tr);
 
 	if (tr.flags & TRIGGER_FL_FILTER) {
 		if (tr.fmode == FILTER_MODE_OUT)
@@ -1685,7 +1673,7 @@ static struct uftrace_record *get_task_ustack(struct uftrace_data *handle, int i
 		sess = find_task_session(sessions, task->t, curr->time);
 
 		if (sess && (curr->type == UFTRACE_ENTRY || curr->type == UFTRACE_EXIT))
-			uftrace_match_filter(curr->addr, &sess->filters, &tr);
+			uftrace_match_filter(curr->addr, &sess->filter_info, &tr);
 
 		if (task->filter.stack) {
 			time_filter = task->filter.stack->threshold;
