@@ -762,6 +762,28 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 	return total_size;
 }
 
+void save_argument(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstack,
+		   struct list_head *args_spec, struct mcount_regs *regs)
+{
+	void *argbuf = get_argbuf(mtdp, rstack);
+	unsigned size;
+	struct mcount_arg_context ctx;
+
+	mcount_memset4(&ctx, 0, sizeof(ctx));
+	ctx.regs = regs;
+	ctx.stack_base = rstack->parent_loc;
+	ctx.regions = &mtdp->mem_regions;
+	ctx.arch = &mtdp->arch;
+	size = save_to_argbuf(argbuf, args_spec, &ctx);
+
+	if (size == -1U) {
+		pr_warn("argument data is too big\n");
+		return;
+	}
+	*(unsigned *)argbuf = size;
+	rstack->flags |= MCOUNT_FL_ARGUMENT;
+}
+
 void save_retval(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstack, long *retval)
 {
 	struct list_head *args_spec = rstack->pargs;
@@ -1326,7 +1348,6 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 				if (prev->flags & MCOUNT_FL_ARGUMENT) {
 					unsigned *argbuf_size;
 					argbuf_size = get_argbuf(mtdp, prev);
-					unsigned tsize = *argbuf_size;
 					if (argbuf_size)
 						size += *argbuf_size;
 				}
