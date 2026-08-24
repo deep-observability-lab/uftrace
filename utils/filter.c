@@ -185,11 +185,11 @@ struct uftrace_filter *uftrace_match_filter(uint64_t addr, struct uftrace_trigge
 				print_trigger(tr);
 			return iter;
 		}
-		
+
 		if (iter->start > addr)
-		p = &parent->rb_left;
+			p = &parent->rb_left;
 		else
-		p = &parent->rb_right;
+			p = &parent->rb_right;
 	}
 	return NULL;
 }
@@ -198,81 +198,81 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 {
 	bool found = false;
 	struct uftrace_arg_spec *oarg, *narg;
-	
+
 	list_for_each_entry(oarg, arg_list, list) {
 		if (arg->type != oarg->type)
-		continue;
-		
+			continue;
+
 		switch (arg->type) {
-			case ARG_TYPE_INDEX:
-			case ARG_TYPE_FLOAT:
+		case ARG_TYPE_INDEX:
+		case ARG_TYPE_FLOAT:
 			if (arg->idx == oarg->idx)
-			found = true;
+				found = true;
 			break;
-			case ARG_TYPE_REG:
+		case ARG_TYPE_REG:
 			if (arg->reg_idx == oarg->reg_idx)
-			found = true;
+				found = true;
 			break;
-			case ARG_TYPE_STACK:
+		case ARG_TYPE_STACK:
 			if (arg->stack_ofs == oarg->stack_ofs)
-			found = true;
+				found = true;
 			break;
 		}
-		
+
 		if (found)
-		break;
+			break;
 	}
-	
+
 	if (found) {
 		/* do not overwrite exact match by regex match */
 		if (exact_match || !oarg->exact) {
 			free(oarg->type_name);
 			oarg->type_name = NULL;
-			
+
 			oarg->fmt = arg->fmt;
 			oarg->size = arg->size;
 			oarg->exact = exact_match;
 			oarg->type = arg->type;
 			oarg->reg_idx = arg->reg_idx;
 			oarg->struct_reg_cnt = arg->struct_reg_cnt;
-			// zahra add , not sure =) 	
-			narg->resolved_struct = arg->resolved_struct; 
-			narg->is_ptr = arg->is_ptr; 
+			// zahra add , not sure =)
+			narg->resolved_struct = arg->resolved_struct;
+			narg->is_ptr = arg->is_ptr;
 			//////////////////////////////
 			if (arg->type_name)
-			oarg->type_name = xstrdup(arg->type_name);
-			
+				oarg->type_name = xstrdup(arg->type_name);
+
 			if (arg->struct_reg_cnt) {
 				memcpy(oarg->struct_regs, arg->struct_regs,
-					sizeof(arg->struct_regs));
-				}
+				       sizeof(arg->struct_regs));
 			}
-		}
-		else {
-			narg = xmalloc(sizeof(*narg));
-			narg->idx = arg->idx;
-			narg->fmt = arg->fmt;
-			narg->size = arg->size;
-			narg->exact = exact_match;
-			narg->type = arg->type;
-			narg->reg_idx = arg->reg_idx;
-			narg->struct_reg_cnt = arg->struct_reg_cnt;
-
-			narg->resolved_struct = arg->resolved_struct; 
-			narg->is_ptr = arg->is_ptr; 
-			//////////////////////////////
-			if (arg->type_name)
-			narg->type_name = xstrdup(arg->type_name);
-			else
-			narg->type_name = NULL;
-			
-			if (arg->struct_reg_cnt) {
-				memcpy(narg->struct_regs, arg->struct_regs, sizeof(arg->struct_regs));
-			}
-			list_add_tail(&narg->list, &oarg->list);
 		}
 	}
-	
+	else {
+		narg = xmalloc(sizeof(*narg));
+		narg->idx = arg->idx;
+		narg->fmt = arg->fmt;
+		narg->size = arg->size;
+		narg->exact = exact_match;
+		narg->type = arg->type;
+		narg->reg_idx = arg->reg_idx;
+		narg->struct_reg_cnt = arg->struct_reg_cnt;
+
+		narg->resolved_struct = arg->resolved_struct;
+		narg->is_ptr = arg->is_ptr;
+		//////////////////////////////
+		if (arg->type_name)
+			narg->type_name = xstrdup(arg->type_name);
+		else
+			narg->type_name = NULL;
+
+		if (arg->struct_reg_cnt) {
+			memcpy(narg->struct_regs, arg->struct_regs, sizeof(arg->struct_regs));
+		}
+		list_add_tail(&narg->list, &oarg->list);
+	}
+}
+
 /**
  * update_trigger - update the trigger flags and related filter data
  * @filter - trigger tree entry holding filter parameters
@@ -281,7 +281,6 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
  */
 void update_trigger(struct uftrace_filter *filter, struct uftrace_trigger *tr, bool exact_match)
 {
-	
 	filter->trigger.flags |= tr->flags;
 
 	if (tr->flags & TRIGGER_FL_CLEAR) {
@@ -608,7 +607,7 @@ static int parse_argument_spec(char *str, struct uftrace_trigger *tr,
 		pr_use("skipping invalid argument: %s\n", str);
 		return -1;
 	}
-	
+
 	arg = parse_argspec(str, setting);
 
 	if (arg == NULL)
@@ -991,7 +990,6 @@ struct trigger_action_parser {
 	enum trigger_flag compat_flags; /* flags the action is restricted to */
 };
 
-
 static void mask_commas_in_braces(char *str)
 {
 	bool in_brace = false;
@@ -1002,7 +1000,7 @@ static void mask_commas_in_braces(char *str)
 		else if (*str == '}')
 			in_brace = false;
 		else if (in_brace && *str == ',')
-			*str = '%';  // placeholder
+			*str = '%'; // placeholder
 	}
 }
 
@@ -1010,10 +1008,9 @@ static void unmask_commas(char *str)
 {
 	for (; *str; str++) {
 		if (*str == '%')
-			*str = ',';  // restore
+			*str = ','; // restore
 	}
 }
-
 
 static const struct trigger_action_parser actions[] = {
 	{
@@ -1112,19 +1109,20 @@ static const struct trigger_action_parser actions[] = {
 	},
 };
 
-static int contains_ci(const char *hay, const char *needle) {
-    if (!hay || !needle) return 0;
-    size_t n = strlen(needle);
-    for (const char *p = hay; *p; p++) {
-        size_t i = 0;
-        while (i < n &&
-               tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i]))
-            i++;
-        if (i == n) return 1;
-    }
-    return 0;
+static int contains_ci(const char *hay, const char *needle)
+{
+	if (!hay || !needle)
+		return 0;
+	size_t n = strlen(needle);
+	for (const char *p = hay; *p; p++) {
+		size_t i = 0;
+		while (i < n && tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i]))
+			i++;
+		if (i == n)
+			return 1;
+	}
+	return 0;
 }
-
 
 int setup_trigger_action(char *str, struct uftrace_trigger *tr, char **module,
 			 unsigned long orig_flags, struct uftrace_filter_setting *setting)
@@ -1144,7 +1142,6 @@ int setup_trigger_action(char *str, struct uftrace_trigger *tr, char **module,
 	strv_split(&acts, pos, ",");
 
 	strv_for_each(&acts, pos, j) {
-		
 		for (i = 0; i < ARRAY_SIZE(actions); i++) {
 			const struct trigger_action_parser *action = &actions[i];
 

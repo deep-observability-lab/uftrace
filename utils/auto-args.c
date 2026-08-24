@@ -155,7 +155,7 @@ static struct uftrace_filter *find_dwarf_argspec(struct uftrace_filter *filter,
 	char *arg_str;
 	unsigned long flag = is_retval ? TRIGGER_FL_RETVAL : TRIGGER_FL_ARGUMENT;
 	unsigned long addr = filter->start;
-	
+
 	if (is_retval)
 		arg_str = get_dwarf_retspec(dinfo, filter->name, addr);
 	else
@@ -164,13 +164,13 @@ static struct uftrace_filter *find_dwarf_argspec(struct uftrace_filter *filter,
 		return NULL;
 
 	arg_str = xstrdup(arg_str);
-	
+
 	setup_trigger_action(arg_str, &dwarf_tr, NULL, flag, setting);
-	if ( arg_str && arg_str != "")
-	if (list_empty(dwarf_tr.pargs)) {
-		free(arg_str);
-		return NULL;
-	}
+	if (arg_str && arg_str != "")
+		if (list_empty(dwarf_tr.pargs)) {
+			free(arg_str);
+			return NULL;
+		}
 
 	dwarf_filter = xzalloc(sizeof(*dwarf_filter));
 	INIT_LIST_HEAD(&dwarf_filter->args);
@@ -192,7 +192,7 @@ struct uftrace_filter *find_auto_argspec(struct uftrace_filter *filter, struct u
 {
 	struct uftrace_filter *auto_arg = NULL;
 
-	if (debug_info_has_argspec(dinfo)){
+	if (debug_info_has_argspec(dinfo)) {
 		auto_arg = find_dwarf_argspec(filter, dinfo, false, setting);
 	}
 
