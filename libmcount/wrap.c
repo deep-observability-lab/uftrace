@@ -519,7 +519,7 @@ __visible_default void *dlopen(const char *filename, int flags)
 	mtdp = get_thread_data();
 	if (unlikely(check_thread_data(mtdp))) {
 		mtdp = mcount_prepare();
-		if (mtdp == NULL){
+		if (mtdp == NULL) {
 			return ret;
 		}
 	}

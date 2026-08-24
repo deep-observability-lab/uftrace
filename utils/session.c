@@ -1415,7 +1415,7 @@ TEST_CASE(session_autoarg_dlopen)
 	session_setup_dlopen_argspec(sess, &setting, true);
 
 #ifdef HAVE_LIBDW
-<<<<<<< HEAD
+	< < < < < < < HEAD
 	{
 		struct uftrace_filter *filter;
 		struct uftrace_trigger tr = {};
