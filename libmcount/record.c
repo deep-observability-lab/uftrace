@@ -762,49 +762,6 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 	return total_size;
 }
 
-/* Dump the argbuf for a single rstack frame.
- * Expected layout: [u32 total_size][data...]
- * If the first field is a length-prefixed string/blob (u16 slen + bytes),
- * we show that too.
- */
-static void dump_argbuf_for_rstackk(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rs)
-{
-	void *hdr = get_argbuf(mtdp, rs); /* points to the u32 total_size */
-	if (!hdr) {
-		return;
-	}
-
-	unsigned total = (unsigned *)hdr; /* total bytes starting at hdr (including this u32) */
-	unsigned short sizeofthis = (unsigned short *)(hdr + sizeof(unsigned));
-	if (total < sizeof(unsigned) || total > ARGBUF_SIZE) {
-		return;
-	}
-	unsigned char *data = (unsigned char *)(hdr + 1);
-	unsigned data_len = total - sizeof(unsigned);
-}
-
-void save_argument(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstack,
-		   struct list_head *args_spec, struct mcount_regs *regs)
-{
-	void *argbuf = get_argbuf(mtdp, rstack);
-	unsigned size;
-	struct mcount_arg_context ctx;
-
-	mcount_memset4(&ctx, 0, sizeof(ctx));
-	ctx.regs = regs;
-	ctx.stack_base = rstack->parent_loc;
-	ctx.regions = &mtdp->mem_regions;
-	ctx.arch = &mtdp->arch;
-	size = save_to_argbuf(argbuf, args_spec, &ctx);
-
-	if (size == -1U) {
-		pr_warn("argument data is too big\n");
-		return;
-	}
-	*(unsigned *)argbuf = size;
-	rstack->flags |= MCOUNT_FL_ARGUMENT;
-}
-
 void save_retval(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstack, long *retval)
 {
 	struct list_head *args_spec = rstack->pargs;
