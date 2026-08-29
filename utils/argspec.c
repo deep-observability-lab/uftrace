@@ -53,6 +53,9 @@ struct uftrace_arg_spec *parse_argspec(char *str, struct uftrace_filter_setting 
 	int bit;
 	char *suffix;
 	char *p;
+	char *ref;
+	char *addr_str;
+	unsigned long long addr;
 
 	if (!strncmp(str, "arg", 3) && isdigit(str[3])) {
 		idx = strtol(str + 3, &suffix, 0);
@@ -161,12 +164,12 @@ struct uftrace_arg_spec *parse_argspec(char *str, struct uftrace_filter_setting 
 			arg->type_name = xstrdup(&suffix[1]);
 			//printf("2 -------------------------- type name %s, suffix: %s\n", arg->type_name, suffix);
 			// Detect pointer-to-struct case (pass-by-ref)
-			char *ref = strstr(arg->type_name, "/&");
+			ref = strstr(arg->type_name, "/&");
 			if (ref) {
 				*ref = '\0'; // Strip "/&" from type_name
 				// Extract and store the address
-				char *addr_str = ref + 2; // skip "/&"
-				unsigned long long addr = strtoull(addr_str, NULL, 0);
+				addr_str = ref + 2; // skip "/&"
+				addr = strtoull(addr_str, NULL, 0);
 				arg->resolved_struct =
 					(struct resolved_struct_type *)(uintptr_t)addr;
 				arg->type = ARG_TYPE_REG;

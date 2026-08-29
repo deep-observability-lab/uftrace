@@ -427,95 +427,6 @@ static void print_escaped_char(char **args, size_t *len, const char c)
 		print_char(args, len, c);
 }
 
-static char *convert_hex_floats_to_decimal(const char *in, int precision)
-{
-	if (!in)
-		return NULL;
-
-	size_t cap = strlen(in) + 1;
-	char *out = xmalloc(cap);
-	size_t pos = 0;
-	const char *p = in;
-
-	while (*p) {
-		const char *start = p;
-
-		// Optional sign
-		if (*p == '+' || *p == '-')
-			p++;
-
-		// Look for the start of a hex float (0x or 0X)
-		if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
-			// Skip the '0x' or '0X' part
-			p += 2;
-
-			// Parse the mantissa part (1.mantissa)
-			uint64_t mantissa = 0;
-			int hex_digits = 0;
-			while ((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f') ||
-			       (*p >= 'A' && *p <= 'F')) {
-				int digit = (*p >= '0' && *p <= '9') ? *p - '0' :
-					    (*p >= 'a' && *p <= 'f') ? *p - 'a' + 10 :
-								       *p - 'A' + 10;
-				mantissa = (mantissa << 4) | digit;
-				p++;
-				hex_digits++;
-			}
-
-			// If there is no mantissa part, handle as zero
-			if (hex_digits == 0) {
-				mantissa = 0;
-			}
-
-			// Skip the 'p' and the exponent
-			if (*p == 'p' || *p == 'P') {
-				p++;
-				int exponent = 0;
-				int sign = 1;
-				if (*p == '-' || *p == '+') {
-					sign = (*p == '-') ? -1 : 1;
-					p++;
-				}
-				while (*p >= '0' && *p <= '9') {
-					exponent = exponent * 10 + (*p - '0');
-					p++;
-				}
-				exponent *= sign;
-
-				// Convert mantissa and exponent into the final value
-				double value = (double)mantissa * pow(2, exponent);
-
-				// Format the result to decimal
-				char num[64];
-				int n = snprintf(num, sizeof num, "%.*g", precision, value);
-				if (n < 0)
-					n = 0;
-
-				// Ensure capacity in the output buffer
-				if (pos + (size_t)n + 1 > cap) {
-					cap = (pos + (size_t)n + 1) * 2;
-					out = xrealloc(out, cap);
-				}
-
-				// Copy the formatted decimal result to the output
-				memcpy(out + pos, num, (size_t)n);
-				pos += (size_t)n;
-				continue;
-			}
-		}
-
-		// Default case: copy one character
-		if (pos + 2 > cap) {
-			cap = (cap * 2) + 16;
-			out = xrealloc(out, cap);
-		}
-		out[pos++] = *p++;
-	}
-
-	out[pos] = '\0'; // Null-terminate the result
-	return out;
-}
-
 static int hexval(int c)
 {
 	if (c >= '0' && c <= '9')
@@ -530,12 +441,15 @@ static int hexval(int c)
 static bool parse_F4(const char **ps, float *out)
 {
 	const char *s = *ps;
+	uint32_t bits = 0;
+	int i;
+	int v;
+
 	if (strncmp(s, "[#F4:", 5) != 0)
 		return false;
 	s += 5;
-	uint32_t bits = 0;
-	for (int i = 0; i < 8; i++) {
-		int v = hexval(s[i]);
+	for (i = 0; i < 8; i++) {
+		v = hexval(s[i]);
 		if (v < 0)
 			return false;
 		bits = (bits << 4) | (uint32_t)v;
@@ -552,12 +466,15 @@ static bool parse_F4(const char **ps, float *out)
 static bool parse_F8(const char **ps, double *out)
 {
 	const char *s = *ps;
+	uint64_t bits = 0;
+	int i;
+	int v;
+
 	if (strncmp(s, "[#F8:", 5) != 0)
 		return false;
 	s += 5;
-	uint64_t bits = 0;
-	for (int i = 0; i < 16; i++) {
-		int v = hexval(s[i]);
+	for (i = 0; i < 16; i++) {
+		v = hexval(s[i]);
 		if (v < 0)
 			return false;
 		bits = (bits << 4) | (uint64_t)v;
@@ -574,12 +491,15 @@ static bool parse_F8(const char **ps, double *out)
 static bool parse_FL(const char **ps, long double *out)
 {
 	const char *s = *ps;
+	unsigned len = 0;
+	unsigned char buf[32];
+	unsigned copy;
+
 	if (strncmp(s, "[#FL:", 5) != 0)
 		return false;
 	s += 5;
 
 	// parse length
-	unsigned len = 0;
 	if (!isdigit((unsigned char)*s))
 		return false;
 	while (isdigit((unsigned char)*s)) {
@@ -590,7 +510,6 @@ static bool parse_FL(const char **ps, long double *out)
 		return false;
 	s++;
 
-	unsigned char buf[32];
 	if (len > sizeof buf)
 		return false; // sanity cap
 	for (unsigned i = 0; i < len; i++) {
@@ -605,7 +524,7 @@ static bool parse_FL(const char **ps, long double *out)
 	s++;
 
 	// memcpy what fits into local long double storage
-	unsigned copy = len < sizeof(*out) ? len : (unsigned)sizeof(*out);
+	copy = len < sizeof(*out) ? len : (unsigned)sizeof(*out);
 	memset(out, 0, sizeof(*out));
 	memcpy(out, buf, copy); // memory-order round trip on same ABI
 	*ps = s;
@@ -614,12 +533,16 @@ static bool parse_FL(const char **ps, long double *out)
 
 char *convert_fp_markers(const char *in, int precision)
 {
+	size_t cap, pos = 0;
+	char *out;
+	const char *p;
+
 	if (!in)
 		return NULL;
 
-	size_t cap = strlen(in) + 1, pos = 0;
-	char *out = xmalloc(cap);
-	const char *p = in;
+	cap = strlen(in) + 1;
+	out = xmalloc(cap);
+	p = in;
 
 	while (*p) {
 		if (p[0] == '[' && p[1] == '#' && p[2] == 'F') {
@@ -671,7 +594,6 @@ void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len
 	char *str = NULL;
 	const int null_str = -1;
 	void *data = task->args.data;
-	char *my_data = args;
 	struct list_head *arg_list = task->args.args;
 	struct uftrace_arg_spec *spec;
 	union {
@@ -939,7 +861,6 @@ void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len
 				memcpy(str, data + 2, slen);
 				str[slen] = '\0';
 				str = convert_fp_markers(str, 7);
-				unsigned j;
 				{
 					char *p = str;
 

@@ -411,13 +411,16 @@ void finish_mem_region(struct mcount_mem_regions *regions)
 // append helper (safe, truncation-aware)
 static size_t buf_append(void *out_buf, size_t out_size, size_t pos, const char *fmt, ...)
 {
+	char *dst;
+	va_list ap;
+	int n;
+
 	if (!out_buf || out_size == 0 || pos >= out_size)
 		return pos;
 
-	char *dst = (char *)out_buf;
-	va_list ap;
+	dst = (char *)out_buf;
 	va_start(ap, fmt);
-	int n = vsnprintf(dst + pos, out_size - pos, fmt, ap);
+	n = vsnprintf(dst + pos, out_size - pos, fmt, ap);
 	va_end(ap);
 
 	if (n < 0)
@@ -456,12 +459,9 @@ unsigned add_resolved_struct_dump(struct resolved_struct_type *resolved_struct, 
 		long double D;
 		unsigned char v[16]; // to hold the raw bytes
 	} val;
-	memset(val.v, 0, sizeof(val));
-	char fmtstr[16];
-	char *len_mod[] = { "hh", "h", "", "ll" }; // Length modifiers for integer types
-	char *lm;
-
 	unsigned pos = 0;
+
+	memset(val.v, 0, sizeof(val));
 	pos = buf_append(out_buf, out_size, pos, "%s {\n",
 			 resolved_struct && resolved_struct->type_name ?
 				 resolved_struct->type_name :
@@ -569,16 +569,17 @@ unsigned add_resolved_struct_dump(struct resolved_struct_type *resolved_struct, 
 		case 'c': {
 			// If it's a pointer to char (m->is_ptr == 1), resolve it as a string
 			if (m->is_ptr == 1) {
+				char *str = NULL;
+				int i = 0;
+
 				// Read the address at member_addr + m->offset (assuming it's a pointer)
 				void *address_of_field = NULL;
 				memcpy(&address_of_field, member_addr,
 				       m->size); // Read the pointer (address)
 
-				char *str = NULL;
 				memcpy(&str, member_addr,
 				       sizeof(str)); // Read the char* (pointer to char)
 				// Now resolve the string, character by character, until we hit a null terminator
-				int i = 0;
 				while (str && str[i] != '\0') {
 					// We use buf_append to append each character to the buffer
 					pos = buf_append(out_buf, out_size, pos, "%c", str[i]);
@@ -622,8 +623,6 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 	unsigned max_size = ARGBUF_SIZE - sizeof(size);
 	bool is_retval = !!ctx->retval;
 	void *ptr;
-	int mew = 0;
-	void *saved_ptr;
 	ptr = argbuf + sizeof(total_size);
 	list_for_each_entry(spec, args_spec, list) {
 		char *dst;
@@ -723,12 +722,13 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 			if (spec->is_ptr) {
 				unsigned short len = 0;
 				size_t avail = (max_size > 2) ? max_size - 2 : 0;
+				size_t written;
 				dst = ptr + 2;
 				if (spec->resolved_struct && avail) {
-					int intended = add_resolved_struct_dump(
-						spec->resolved_struct, ctx->val.p, dst, avail);
-					// intended can be > avail-1 if truncated by snprintf
-					size_t written = strnlen(
+					add_resolved_struct_dump(
+						spec->resolved_struct, ctx->val.p, dst,
+						avail); /* truncation handled via strnlen below */
+					written = strnlen(
 						dst,
 						avail); // bytes actually in buffer excluding the NUL
 					len = (uint16_t)written;
@@ -736,7 +736,6 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 					*(unsigned short *)ptr = len;
 
 					size = ALIGN(written + 2, 4);
-					saved_ptr = ptr + 2;
 					spec->size = size;
 				}
 				else {
@@ -760,27 +759,6 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 	if (total_size > max_size)
 		return -1U;
 	return total_size;
-}
-
-/* Dump the argbuf for a single rstack frame.
- * Expected layout: [u32 total_size][data...]
- * If the first field is a length-prefixed string/blob (u16 slen + bytes),
- * we show that too.
- */
-static void dump_argbuf_for_rstackk(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rs)
-{
-	void *hdr = get_argbuf(mtdp, rs); /* points to the u32 total_size */
-	if (!hdr) {
-		return;
-	}
-
-	unsigned total = *(unsigned *)hdr; /* total bytes starting at hdr (including this u32) */
-	unsigned short sizeofthis = *(unsigned short *)(hdr + sizeof(unsigned));
-	if (total < sizeof(unsigned) || total > ARGBUF_SIZE) {
-		return;
-	}
-	unsigned char *data = (unsigned char *)(hdr + 1);
-	unsigned data_len = total - sizeof(unsigned);
 }
 
 void save_argument(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstack,
@@ -1369,7 +1347,6 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 				if (prev->flags & MCOUNT_FL_ARGUMENT) {
 					unsigned *argbuf_size;
 					argbuf_size = get_argbuf(mtdp, prev);
-					unsigned tsize = *argbuf_size;
 					if (argbuf_size)
 						size += *argbuf_size;
 				}

@@ -166,11 +166,12 @@ static struct uftrace_filter *find_dwarf_argspec(struct uftrace_filter *filter,
 	arg_str = xstrdup(arg_str);
 
 	setup_trigger_action(arg_str, &dwarf_tr, NULL, flag, setting);
-	if (arg_str && arg_str != "")
+	if (*arg_str != '\0') {
 		if (list_empty(dwarf_tr.pargs)) {
 			free(arg_str);
 			return NULL;
 		}
+	}
 
 	dwarf_filter = xzalloc(sizeof(*dwarf_filter));
 	INIT_LIST_HEAD(&dwarf_filter->args);

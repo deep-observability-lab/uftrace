@@ -235,10 +235,8 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 			oarg->type = arg->type;
 			oarg->reg_idx = arg->reg_idx;
 			oarg->struct_reg_cnt = arg->struct_reg_cnt;
-			// zahra add , not sure =)
-			narg->resolved_struct = arg->resolved_struct;
-			narg->is_ptr = arg->is_ptr;
-			//////////////////////////////
+			oarg->resolved_struct = arg->resolved_struct;
+			oarg->is_ptr = arg->is_ptr;
 			if (arg->type_name)
 				oarg->type_name = xstrdup(arg->type_name);
 
@@ -990,28 +988,6 @@ struct trigger_action_parser {
 	enum trigger_flag compat_flags; /* flags the action is restricted to */
 };
 
-static void mask_commas_in_braces(char *str)
-{
-	bool in_brace = false;
-
-	for (; *str; str++) {
-		if (*str == '{')
-			in_brace = true;
-		else if (*str == '}')
-			in_brace = false;
-		else if (in_brace && *str == ',')
-			*str = '%'; // placeholder
-	}
-}
-
-static void unmask_commas(char *str)
-{
-	for (; *str; str++) {
-		if (*str == '%')
-			*str = ','; // restore
-	}
-}
-
 static const struct trigger_action_parser actions[] = {
 	{
 		"arg",
@@ -1108,21 +1084,6 @@ static const struct trigger_action_parser actions[] = {
 		TRIGGER_FL_FILTER,
 	},
 };
-
-static int contains_ci(const char *hay, const char *needle)
-{
-	if (!hay || !needle)
-		return 0;
-	size_t n = strlen(needle);
-	for (const char *p = hay; *p; p++) {
-		size_t i = 0;
-		while (i < n && tolower((unsigned char)p[i]) == tolower((unsigned char)needle[i]))
-			i++;
-		if (i == n)
-			return 1;
-	}
-	return 0;
-}
 
 int setup_trigger_action(char *str, struct uftrace_trigger *tr, char **module,
 			 unsigned long orig_flags, struct uftrace_filter_setting *setting)
