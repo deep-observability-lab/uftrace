@@ -748,8 +748,8 @@ static void dump_argbuf_for_rstackk(struct mcount_thread_data *mtdp,
         return;
     }
 
-    unsigned total = (unsigned*)hdr;  /* total bytes starting at hdr (including this u32) */
-	unsigned short sizeofthis = (unsigned short *)(hdr + sizeof(unsigned)); 
+    unsigned total = *(unsigned *)hdr;  /* total bytes starting at hdr (including this u32) */
+	unsigned short sizeofthis = *(unsigned short *)(hdr + sizeof(unsigned));
     if (total < sizeof(unsigned) || total > ARGBUF_SIZE) {
         return;
     }

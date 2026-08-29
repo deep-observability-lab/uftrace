@@ -1,4 +1,5 @@
 #include <inttypes.h>
+#include <math.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>

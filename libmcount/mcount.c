@@ -426,7 +426,7 @@ struct uftrace_triggers_info *mcount_trigger_init(struct uftrace_filter_setting 
 	/* use debug info if available */
 	if (needs_debug_info) {
 		prepare_debug_info(&mcount_sym_info, filter_setting->ptype, argument_str,
-				   retval_str, !!autoargs_str, force);
+				   retval_str, !!autoargs_str, !!patch_str);
 		
 		save_debug_info(&mcount_sym_info, mcount_sym_info.dirname);
 	}
@@ -2090,12 +2090,12 @@ static __used void mcount_startup(void)
 	if (pattern_str)
 		mcount_filter_setting.ptype = parse_filter_pattern(pattern_str);
 	
-	if (patch_str){
-		mcount_return_fn = (unsigned long)dynamic_return;
-	}
-	else{
-		mcount_return_fn = (unsigned long)mcount_return;
-	}
+	if (patch_str)
+		mcount_return_fn = mcount_arch_ops.exit[UFT_ARCH_OPS_DYNAMIC];
+	else
+		mcount_return_fn = mcount_arch_ops.exit[UFT_ARCH_OPS_MCOUNT];
+
+	plthook_return_fn = mcount_arch_ops.exit[UFT_ARCH_OPS_PLTHOOK];
 	mcount_filter_init(&mcount_filter_setting, !!patch_str);
 	mcount_watch_init();
 
