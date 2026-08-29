@@ -430,16 +430,6 @@ struct uftrace_triggers_info *mcount_trigger_init(struct uftrace_filter_setting 
 		save_debug_info(&mcount_sym_info, mcount_sym_info.dirname);
 	}
 
-	mcount_triggers = xmalloc(sizeof(*mcount_triggers));
-	memset(mcount_triggers, 0, sizeof(*mcount_triggers));
-	mcount_triggers->root = RB_ROOT;
-	uftrace_setup_filter(filter_str, &mcount_sym_info, mcount_triggers, filter_setting);
-	uftrace_setup_trigger(trigger_str, &mcount_sym_info, mcount_triggers, filter_setting);
-	uftrace_setup_argument(argument_str, &mcount_sym_info, mcount_triggers, filter_setting);
-	// if (autoargs_str && strstr(autoargs_str, "Point"))
-
-	uftrace_setup_retval(retval_str, &mcount_sym_info, mcount_triggers, filter_setting);
-
 	triggers = xzalloc(sizeof(*triggers));
 	triggers->root = RB_ROOT;
 
