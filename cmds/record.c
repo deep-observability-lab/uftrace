@@ -549,7 +549,7 @@ static void write_buffer_file(const char *dirname, struct buf_list *buf)
 static void write_buffer(struct buf_list *buf, struct uftrace_opts *opts, int sock)
 {
 	struct mcount_shmem_buffer *shmbuf = buf->shmem_buf;
-	
+
 	if (!opts->host)
 		write_buffer_file(opts->dirname, buf);
 	else
@@ -802,7 +802,7 @@ static void copy_to_buffer(struct mcount_shmem_buffer *shm, char *sess_id)
 	}
 
 	buf->shmem_buf = shm;
-	
+
 	parse_msg_id(sess_id, NULL, &buf->tid, NULL);
 
 	pthread_mutex_lock(&write_list_lock);
@@ -2118,7 +2118,7 @@ static int do_main_loop(int ready[], struct uftrace_opts *opts, int pid)
 	setup_writers(&wd, opts);
 	start_tracing(&wd, opts, ready[1]);
 	close(ready[1]);
-	
+
 	while (!uftrace_done) {
 		struct pollfd pollfd = {
 			.fd = wd.pipefd,
@@ -2140,7 +2140,7 @@ static int do_main_loop(int ready[], struct uftrace_opts *opts, int pid)
 	ret = stop_tracing(&wd, opts);
 	finish_writers(&wd, opts);
 	write_symbol_files(&wd, opts);
-	
+
 	return ret;
 }
 
@@ -2263,7 +2263,6 @@ static int do_child_exec(int ready[], struct uftrace_opts *opts, int argc, char 
 
 int command_record(int argc, char *argv[], struct uftrace_opts *opts)
 {
-	
 	int pid;
 	int ready[2];
 	int ret = -1;

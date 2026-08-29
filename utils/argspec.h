@@ -41,7 +41,7 @@ enum uftrace_arg_format {
 #define RETVAL_IDX 0
 
 struct uftrace_arg_spec {
-	struct list_head list;  
+	struct list_head list;
 	int idx; // ok
 	enum uftrace_arg_format fmt; // ok
 	int size; // ok
@@ -49,13 +49,13 @@ struct uftrace_arg_spec {
 	unsigned char type; // ok
 	short struct_reg_cnt;
 	union {
-		short reg_idx;  // ok
+		short reg_idx; // ok
 		short stack_ofs;
 	};
-	char *type_name;  // ok
+	char *type_name; // ok
 	short struct_regs[4];
-	// adding address of struct; 
-	int is_ptr; 
+	// adding address of struct;
+	int is_ptr;
 	struct resolved_struct_type *resolved_struct;
 };
 
