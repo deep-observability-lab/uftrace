@@ -592,6 +592,7 @@ void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len
 {
 	int i = 0, n = 0;
 	char *str = NULL;
+
 	const int null_str = -1;
 	void *data = task->args.data;
 	struct list_head *arg_list = task->args.args;
@@ -728,7 +729,6 @@ void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len
 
 			str = xmalloc(slen + 1);
 			memcpy(str, data + 2, slen);
-
 			str[slen] = '\0';
 
 			if (slen == 4 && !memcmp(str, &null_str, sizeof(null_str)))
@@ -935,6 +935,7 @@ next:
 		if (is_retval)
 			break;
 	}
+
 	if (needs_paren) {
 		print_args(&args, &len, ")");
 	}
@@ -1000,6 +1001,7 @@ static int print_graph_rstack(struct uftrace_data *handle, struct uftrace_task_r
 
 	sym = task_find_sym(sessions, task, rstack);
 	symname = symbol_getname(sym, rstack->addr);
+
 	/* skip it if --no-libcall is given */
 	if (!opts->libcall && sym && sym->type == ST_PLT_FUNC)
 		goto out;
@@ -1094,7 +1096,6 @@ static int print_graph_rstack(struct uftrace_data *handle, struct uftrace_task_r
 
 		if (rstack->more && opts->show_args)
 			str_mode |= HAS_MORE;
-
 		get_argspec_string(task, args, sizeof(args), str_mode);
 
 		fstack = fstack_get(task, task->stack_count - 1);
@@ -1439,9 +1440,8 @@ int command_replay(int argc, char *argv[], struct uftrace_opts *opts)
 	if (format_mode == FORMAT_HTML)
 		pr_out(HTML_HEADER);
 
-	if (!opts->flat && peek_rstack(&handle, &task) == 0) {
+	if (!opts->flat && peek_rstack(&handle, &task) == 0)
 		print_header(&output_fields, "#", "FUNCTION", 1, false);
-	}
 	if (!list_empty(&output_fields)) {
 		if (opts->srcline)
 			pr_gray(" [SOURCE]");
@@ -1468,9 +1468,9 @@ int command_replay(int argc, char *argv[], struct uftrace_opts *opts)
 
 		if (opts->flat)
 			ret = print_flat_rstack(&handle, task, opts);
-		else {
+		else
 			ret = print_graph_rstack(&handle, task, opts);
-		}
+
 		if (ret)
 			break;
 	}
@@ -1481,6 +1481,7 @@ int command_replay(int argc, char *argv[], struct uftrace_opts *opts)
 		pr_out(HTML_FOOTER);
 
 	close_data_file(opts, &handle);
+
 	return ret;
 }
 

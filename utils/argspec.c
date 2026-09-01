@@ -272,6 +272,7 @@ out:
 	arg->fmt = fmt;
 	arg->size = size;
 	arg->type = type;
+
 	return arg;
 
 err:

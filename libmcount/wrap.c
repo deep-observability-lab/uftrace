@@ -330,6 +330,7 @@ __visible_default int backtrace(void **buffer, int sz)
 {
 	int ret;
 	struct mcount_thread_data *mtdp;
+
 	if (unlikely(real_backtrace == NULL))
 		mcount_hook_functions();
 
@@ -374,6 +375,7 @@ __visible_default void __cxa_throw(void *exception, void *type, void *dest)
 __visible_default void __cxa_rethrow(void)
 {
 	struct mcount_thread_data *mtdp;
+
 	if (unlikely(real_cxa_rethrow == NULL))
 		mcount_hook_functions();
 
@@ -397,6 +399,7 @@ __visible_default void __cxa_rethrow(void)
 __visible_default void _Unwind_Resume(void *exception)
 {
 	struct mcount_thread_data *mtdp;
+
 	if (unlikely(real_unwind_resume == NULL))
 		mcount_hook_functions();
 
@@ -421,6 +424,7 @@ __visible_default void *__cxa_begin_catch(void *exception)
 {
 	struct mcount_thread_data *mtdp;
 	void *obj;
+
 	if (unlikely(real_cxa_begin_catch == NULL))
 		mcount_hook_functions();
 
@@ -458,6 +462,7 @@ __visible_default void __cxa_end_catch(void)
 __visible_default void __cxa_guard_abort(void *guard_obj)
 {
 	struct mcount_thread_data *mtdp;
+
 	if (unlikely(real_cxa_guard_abort == NULL))
 		mcount_hook_functions();
 
@@ -501,6 +506,7 @@ __visible_default void *dlopen(const char *filename, int flags)
 		.filename = filename,
 	};
 	void *ret;
+
 	/*
 	 * get timestamp before calling dlopen() so that
 	 * it can have symbols in static initializers which
@@ -519,14 +525,14 @@ __visible_default void *dlopen(const char *filename, int flags)
 	mtdp = get_thread_data();
 	if (unlikely(check_thread_data(mtdp))) {
 		mtdp = mcount_prepare();
-		if (mtdp == NULL) {
+		if (mtdp == NULL)
 			return ret;
-		}
 	}
 	else {
 		if (!mcount_guard_recursion(mtdp))
 			return ret;
 	}
+
 	data.mtdp = mtdp;
 	data.handle = ret;
 	dl_iterate_phdr(dlopen_base_callback, &data);
@@ -581,6 +587,7 @@ __visible_default __noreturn void pthread_exit(void *retval)
 
 	if (unlikely(real_pthread_exit == NULL))
 		mcount_hook_functions();
+
 	mtdp = get_thread_data();
 	if (check_thread_data(mtdp))
 		goto out;

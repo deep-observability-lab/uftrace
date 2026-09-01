@@ -228,7 +228,6 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 		if (exact_match || !oarg->exact) {
 			free(oarg->type_name);
 			oarg->type_name = NULL;
-
 			oarg->fmt = arg->fmt;
 			oarg->size = arg->size;
 			oarg->exact = exact_match;
@@ -237,6 +236,7 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 			oarg->struct_reg_cnt = arg->struct_reg_cnt;
 			oarg->resolved_struct = arg->resolved_struct;
 			oarg->is_ptr = arg->is_ptr;
+
 			if (arg->type_name)
 				oarg->type_name = xstrdup(arg->type_name);
 
@@ -255,10 +255,9 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 		narg->type = arg->type;
 		narg->reg_idx = arg->reg_idx;
 		narg->struct_reg_cnt = arg->struct_reg_cnt;
-
 		narg->resolved_struct = arg->resolved_struct;
 		narg->is_ptr = arg->is_ptr;
-		//////////////////////////////
+
 		if (arg->type_name)
 			narg->type_name = xstrdup(arg->type_name);
 		else
@@ -267,6 +266,7 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 		if (arg->struct_reg_cnt) {
 			memcpy(narg->struct_regs, arg->struct_regs, sizeof(arg->struct_regs));
 		}
+
 		list_add_tail(&narg->list, &oarg->list);
 	}
 }
@@ -607,7 +607,6 @@ static int parse_argument_spec(char *str, struct uftrace_trigger *tr,
 	}
 
 	arg = parse_argspec(str, setting);
-
 	if (arg == NULL)
 		return -1;
 
@@ -621,6 +620,7 @@ static int parse_retval_spec(char *str, struct uftrace_trigger *tr,
 			     struct uftrace_filter_setting *setting)
 {
 	struct uftrace_arg_spec *arg;
+
 	arg = parse_argspec(str, setting);
 	if (arg == NULL)
 		return -1;
@@ -641,6 +641,7 @@ static int parse_float_argument_spec(char *str, struct uftrace_trigger *tr,
 		pr_use("skipping invalid argument: %s\n", str);
 		return -1;
 	}
+
 	arg = parse_argspec(str, setting);
 	if (arg == NULL)
 		return -1;
@@ -1093,6 +1094,7 @@ int setup_trigger_action(char *str, struct uftrace_trigger *tr, char **module,
 	int ret = -1;
 	size_t i;
 	int j;
+
 	if (module != NULL)
 		*module = NULL;
 
@@ -1224,7 +1226,7 @@ static void setup_trigger(const char *filter_str, struct uftrace_sym_info *sinfo
 		struct uftrace_pattern patt = {
 			.type = PATT_NONE,
 		};
-		// int setup_trigger_action(char *str,
+
 		if (setup_trigger_action(name, &tr, &module, flags, setting) < 0)
 			goto next;
 

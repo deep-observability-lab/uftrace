@@ -8,7 +8,6 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
-////////////
 
 /* This should be defined before #include "utils.h" */
 #define PR_FMT "mcount"
@@ -185,6 +184,7 @@ reuse:
 static void finish_shmem_buffer(struct mcount_thread_data *mtdp, int idx)
 {
 	char buf[64];
+
 	snprintf(buf, sizeof(buf), SHMEM_SESSION_FMT, mcount_session_name(), mcount_gettid(mtdp),
 		 idx);
 
@@ -195,7 +195,9 @@ void clear_shmem_buffer(struct mcount_thread_data *mtdp)
 {
 	struct mcount_shmem *shmem = &mtdp->shmem;
 	int i;
+
 	pr_dbg2("releasing all shmem buffers for task %d\n", mcount_gettid(mtdp));
+
 	for (i = 0; i < shmem->nr_buf; i++)
 		munmap(shmem->buffer[i], shmem_bufsize);
 
@@ -623,14 +625,15 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 	unsigned max_size = ARGBUF_SIZE - sizeof(size);
 	bool is_retval = !!ctx->retval;
 	void *ptr;
+
 	ptr = argbuf + sizeof(total_size);
 	list_for_each_entry(spec, args_spec, list) {
 		char *dst;
 
-		if (is_retval != (spec->idx == RETVAL_IDX)) {
+		if (is_retval != (spec->idx == RETVAL_IDX))
 			continue;
-		}
-		if (spec->fmt == ARG_FMT_STRUCT) { //  spec->is_ptr==0
+
+		if (spec->fmt == ARG_FMT_STRUCT) {
 			if (total_size + spec->size > max_size) {
 				/* just to make it fail */
 				total_size += spec->size;
@@ -639,12 +642,10 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 			ctx->val.p = ptr;
 		}
 
-		if (is_retval) {
+		if (is_retval)
 			mcount_arch_get_retval(ctx, spec);
-		}
-		else {
+		else
 			mcount_arch_get_arg(ctx, spec);
-		}
 
 		if (spec->fmt == ARG_FMT_STR || spec->fmt == ARG_FMT_STD_STRING) {
 			unsigned short len;
@@ -668,6 +669,7 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 				unsigned i;
 				char *dst = ptr + 2;
 				char buf[32];
+
 				if (!check_mem_region(ctx, (unsigned long)str)) {
 					len = snprintf(buf, sizeof(buf), "<%p>", str);
 					str = buf;
@@ -758,6 +760,7 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 
 	if (total_size > max_size)
 		return -1U;
+
 	return total_size;
 }
 
@@ -773,12 +776,13 @@ void save_argument(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rst
 	ctx.stack_base = rstack->parent_loc;
 	ctx.regions = &mtdp->mem_regions;
 	ctx.arch = &mtdp->arch;
-	size = save_to_argbuf(argbuf, args_spec, &ctx);
 
+	size = save_to_argbuf(argbuf, args_spec, &ctx);
 	if (size == -1U) {
 		pr_warn("argument data is too big\n");
 		return;
 	}
+
 	*(unsigned *)argbuf = size;
 	rstack->flags |= MCOUNT_FL_ARGUMENT;
 }
@@ -789,16 +793,19 @@ void save_retval(struct mcount_thread_data *mtdp, struct mcount_ret_stack *rstac
 	void *argbuf = get_argbuf(mtdp, rstack);
 	unsigned size;
 	struct mcount_arg_context ctx;
+
 	mcount_memset4(&ctx, 0, sizeof(ctx));
 	ctx.retval = retval;
 	ctx.regions = &mtdp->mem_regions;
 	ctx.arch = &mtdp->arch;
+
 	size = save_to_argbuf(argbuf, args_spec, &ctx);
 	if (size == -1U) {
 		pr_warn("retval data is too big\n");
 		rstack->flags &= ~MCOUNT_FL_RETVAL;
 		return;
 	}
+
 	*(uint32_t *)argbuf = size;
 }
 
@@ -1112,6 +1119,7 @@ static struct mcount_shmem_buffer *get_shmem_buffer(struct mcount_thread_data *m
 	struct mcount_shmem *shmem = &mtdp->shmem;
 	struct mcount_shmem_buffer *curr_buf;
 	size_t maxsize = (size_t)shmem_bufsize - sizeof(**shmem->buffer);
+
 	if (unlikely(shmem->curr == -1 || shmem->buffer == NULL))
 		goto get_buffer;
 
@@ -1265,9 +1273,12 @@ static int record_ret_stack(struct mcount_thread_data *mtdp, enum uftrace_record
 	mrstack->flags |= MCOUNT_FL_WRITTEN;
 
 	if (argbuf) {
-		void *ptr = (void *)curr_buf->data + curr_buf->size;
+		unsigned int *ptr = (void *)curr_buf->data + curr_buf->size;
+
 		size -= sizeof(*frstack);
+
 		mcount_memcpy4(ptr, argbuf + 4, size);
+
 		curr_buf->size += ALIGN(size, 8);
 	}
 
@@ -1295,7 +1306,7 @@ static int record_ret_stack(struct mcount_thread_data *mtdp, enum uftrace_record
 
 /*
  * For performance reasons and time filter, it doesn't record trace data one at
- * a time. Instead it usually writes the data when an EXIT record is ready so
+ * a time.  Instead it usually writes the data when an EXIT record is ready so
  * it needs to record ENTRY data in the current and may in the parent functions.
  *
  * For example, if it has a time filter for 1 usec.
@@ -1332,9 +1343,10 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 
 	if (!(mrstack->flags & MCOUNT_FL_WRITTEN)) {
 		non_written_mrstack = mrstack;
-		if (!(non_written_mrstack->flags & SKIP_FLAGS)) {
+
+		if (!(non_written_mrstack->flags & SKIP_FLAGS))
 			count++;
-		}
+
 		while (non_written_mrstack > mtdp->rstack) {
 			struct mcount_ret_stack *prev = non_written_mrstack - 1;
 
@@ -1346,6 +1358,7 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 
 				if (prev->flags & MCOUNT_FL_ARGUMENT) {
 					unsigned *argbuf_size;
+
 					argbuf_size = get_argbuf(mtdp, prev);
 					if (argbuf_size)
 						size += *argbuf_size;
@@ -1384,12 +1397,11 @@ int record_trace_data(struct mcount_thread_data *mtdp, struct mcount_ret_stack *
 	}
 
 	if (mrstack->end_time) {
-		if (retval) {
+		if (retval)
 			save_retval(mtdp, mrstack, retval);
-		}
-		else {
+		else
 			mrstack->flags &= ~MCOUNT_FL_RETVAL;
-		}
+
 		if (record_ret_stack(mtdp, UFTRACE_EXIT, mrstack))
 			return 0;
 

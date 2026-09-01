@@ -42,17 +42,17 @@ enum uftrace_arg_format {
 
 struct uftrace_arg_spec {
 	struct list_head list;
-	int idx; // ok
-	enum uftrace_arg_format fmt; // ok
-	int size; // ok
+	int idx;
+	enum uftrace_arg_format fmt;
+	int size;
 	bool exact;
-	unsigned char type; // ok
+	unsigned char type;
 	short struct_reg_cnt;
 	union {
-		short reg_idx; // ok
+		short reg_idx;
 		short stack_ofs;
 	};
-	char *type_name; // ok
+	char *type_name;
 	short struct_regs[4];
 	// adding address of struct;
 	int is_ptr;

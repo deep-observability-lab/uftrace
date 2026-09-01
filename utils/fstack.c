@@ -207,6 +207,7 @@ setup:
 
 		if (!found) {
 			task->done = true;
+
 			/* need to read the data to check elapsed time */
 			if (task->fp) {
 				if (!__read_task_ustack(task)) {
@@ -1278,16 +1279,17 @@ static void swap_bitfields(struct uftrace_record *rstack)
 static int __read_task_ustack(struct uftrace_task_reader *task)
 {
 	FILE *fp = task->fp;
+
 	if (fread(&task->ustack, sizeof(task->ustack), 1, fp) != 1) {
 		if (feof(fp))
 			return -1;
+
 		pr_warn("error reading rstack: %s\n", strerror(errno));
 		return -1;
 	}
 
 	if (task->h->needs_byte_swap)
 		swap_byte_order(&task->ustack);
-
 	if (task->h->needs_bit_swap)
 		swap_bitfields(&task->ustack);
 
@@ -1305,8 +1307,10 @@ static int read_task_arg(struct uftrace_task_reader *task, struct uftrace_arg_sp
 	struct uftrace_fstack_args *args = &task->args;
 	unsigned size = spec->size;
 	int rem;
+
 	if (spec->size == 0)
 		return 0;
+
 	if (spec->fmt == ARG_FMT_STR || spec->fmt == ARG_FMT_STD_STRING) {
 		args->data = xrealloc(args->data, args->len + 2);
 
@@ -1463,6 +1467,7 @@ static void save_task_event(struct uftrace_task_reader *task, void *buf, size_t 
 	task->args.args = (void *)1;
 	task->args.len = buflen;
 	task->args.data = xrealloc(task->args.data, buflen);
+
 	memcpy(task->args.data, buf, buflen);
 
 	/* ensure 8-byte alignment */
@@ -1602,11 +1607,9 @@ int read_task_ustack(struct uftrace_data *handle, struct uftrace_task_reader *ta
 {
 	if (task->valid)
 		return 0;
+
 	if (task->done || task->fp == NULL)
 		return -1;
-
-	// does not matter : read from the file pointer --> fp of task
-	// task -> ustack = task->fp ;
 
 	if (__read_task_ustack(task) < 0) {
 		task->done = true;
@@ -1614,12 +1617,10 @@ int read_task_ustack(struct uftrace_data *handle, struct uftrace_task_reader *ta
 	}
 
 	if (task->ustack.more) {
-		if (task->ustack.type == UFTRACE_ENTRY) {
+		if (task->ustack.type == UFTRACE_ENTRY)
 			read_task_args(task, &task->ustack, false);
-		}
-		else if (task->ustack.type == UFTRACE_EXIT) {
+		else if (task->ustack.type == UFTRACE_EXIT)
 			read_task_args(task, &task->ustack, true);
-		}
 		else if (task->ustack.type == UFTRACE_EVENT)
 			read_task_event(task, &task->ustack);
 
@@ -1677,17 +1678,10 @@ static struct uftrace_record *get_task_ustack(struct uftrace_data *handle, int i
 	if (rstack_list->count)
 		goto out;
 
-	// struct uftrace_symbol *sym = NULL;
-	// char *symname = NULL;
-
-	// sym = task_find_sym(sessions, task, task->rstack);
-	// symname = symbol_getname(sym,task->rstack->addr);
-
 	/*
 	 * read task (user) stack until it found an entry that exceeds
 	 * the given time filter (-t option).
 	 */
-
 	while (read_task_ustack(handle, task) == 0) {
 		struct uftrace_session *sess;
 		struct uftrace_trigger tr = {};
@@ -2258,6 +2252,7 @@ static void __fstack_consume(struct uftrace_task_reader *task, struct uftrace_ke
 			goto consume_perf_event;
 
 		ASSERT(node->args.data);
+
 		/* restore args/retval to task */
 		free(task->args.data);
 		task->args.args = node->args.args;
@@ -2434,7 +2429,6 @@ static void adjust_rstack_after_schedule(struct uftrace_data *handle,
 	pr_dbg3("task[%*d] estimate next record after schedule\n", TASK_ID_LEN, task->tid);
 }
 
-// booooooooooommmmmmmmmmmm
 static int __read_rstack(struct uftrace_data *handle, struct uftrace_task_reader **taskp,
 			 bool consume)
 {
@@ -2516,6 +2510,7 @@ static int __read_rstack(struct uftrace_data *handle, struct uftrace_task_reader
 	case USER:
 		utask->rstack = &utask->ustack;
 		task = utask;
+
 		/* subsequent EXIT records might have inverted timestamp */
 		if (handle->hdr.feat_mask & ESTIMATE_RETURN && task->timestamp_estimate != 0) {
 			if (task->rstack->type == UFTRACE_EXIT &&

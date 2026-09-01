@@ -317,6 +317,7 @@ static void pr_args(struct uftrace_fstack_args *args)
 	void *ptr = args->data;
 	size_t size;
 	int i = 0;
+
 	task = container_of(args, typeof(*task), args);
 	sessions = &task->h->sessions;
 
@@ -428,6 +429,7 @@ static void pr_retval(struct uftrace_fstack_args *args)
 
 	task = container_of(args, typeof(*task), args);
 	sessions = &task->h->sessions;
+
 	list_for_each_entry(spec, args->args, list) {
 		/* skip argument info */
 		if (spec->idx != RETVAL_IDX)

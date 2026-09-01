@@ -96,6 +96,7 @@ static void build_auto_args(const char *args_str, struct rb_root *root, unsigned
 		 * splitting the original string.
 		 */
 		entry.end = (unsigned long)xstrdup(p + 1);
+
 		if (setup_trigger_action(name, &tr, NULL, flag, setting) < 0)
 			goto next;
 
@@ -164,7 +165,6 @@ static struct uftrace_filter *find_dwarf_argspec(struct uftrace_filter *filter,
 		return NULL;
 
 	arg_str = xstrdup(arg_str);
-
 	setup_trigger_action(arg_str, &dwarf_tr, NULL, flag, setting);
 	if (*arg_str != '\0') {
 		if (list_empty(dwarf_tr.pargs)) {
@@ -183,6 +183,7 @@ static struct uftrace_filter *find_dwarf_argspec(struct uftrace_filter *filter,
 	/* XXX: since 'name' was not used here, abuse it as a linked list */
 	dwarf_filter->name = (void *)dwarf_argspec_list;
 	dwarf_argspec_list = dwarf_filter;
+
 	free(arg_str);
 	return dwarf_filter;
 }
@@ -193,9 +194,8 @@ struct uftrace_filter *find_auto_argspec(struct uftrace_filter *filter, struct u
 {
 	struct uftrace_filter *auto_arg = NULL;
 
-	if (debug_info_has_argspec(dinfo)) {
+	if (debug_info_has_argspec(dinfo))
 		auto_arg = find_dwarf_argspec(filter, dinfo, false, setting);
-	}
 
 	if (auto_arg == NULL)
 		auto_arg = find_auto_args(&auto_argspec, filter->name);
