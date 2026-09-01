@@ -408,6 +408,9 @@ print_raw:
 			pr_out("  args[%d] %c%d: 0x%0*llx\n", i, ARG_SPEC_CHARS[spec->fmt],
 			       spec->size * 8, spec->size * 2, val);
 
+			printf(" args[%d] %c%d: 0x%0*llx\n", i, ARG_SPEC_CHARS[spec->fmt],
+			       spec->size * 8, spec->size * 2, val);
+
 			size = spec->size;
 		}
 

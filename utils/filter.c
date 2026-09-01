@@ -228,13 +228,14 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 		if (exact_match || !oarg->exact) {
 			free(oarg->type_name);
 			oarg->type_name = NULL;
-
 			oarg->fmt = arg->fmt;
 			oarg->size = arg->size;
 			oarg->exact = exact_match;
 			oarg->type = arg->type;
 			oarg->reg_idx = arg->reg_idx;
 			oarg->struct_reg_cnt = arg->struct_reg_cnt;
+			oarg->resolved_struct = arg->resolved_struct;
+			oarg->is_ptr = arg->is_ptr;
 
 			if (arg->type_name)
 				oarg->type_name = xstrdup(arg->type_name);
@@ -254,6 +255,8 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 		narg->type = arg->type;
 		narg->reg_idx = arg->reg_idx;
 		narg->struct_reg_cnt = arg->struct_reg_cnt;
+		narg->resolved_struct = arg->resolved_struct;
+		narg->is_ptr = arg->is_ptr;
 
 		if (arg->type_name)
 			narg->type_name = xstrdup(arg->type_name);

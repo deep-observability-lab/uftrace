@@ -110,6 +110,26 @@ $ uftrace -la -A udev_new@arg1/s -f+module lsusb  # -f+module adds the module na
    5.829 us [ 23561] libudev.so.1.7.2 |   fopen64("/etc/systemd/hwdb/hwdb.bin", "re") = 0;
 ```
 
+You can also dereference an int* argument using the /ip format:
+```sh
+$ uftrace -A foo@arg1/ip ./a.out
+```
+Suppose the input pointer address is 0x7ffe789cc654, and the value pointed to is 44.
+The output will display the actual dereferenced value:
+```sh
+# DURATION     TID      FUNCTION
+   1.008 us [   4358] | __monstartup();
+   0.271 us [   4358] | __cxa_atexit();
+[debug] read_task_arg: read int* value = 44 (0x2c)
+            [   4358] | main() {
+            [   4358] |   foo(44) {
+  75.021 us [   4358] |     printf();
+   7.667 us [   4358] |     printf();
+ 343.559 us [   4358] |   } /* foo */
+ 344.157 us [   4358] | } /* main */
+```
+This makes uftrace especially helpful when working with pointer-to-int arguments in low-level tracing.
+
 Furthermore, it can show detailed execution flow at function level, and report
 which functions had the longest execution time.  It also shows information about
 the execution environment.
@@ -354,6 +374,62 @@ The supported script types are Python 3, Python 2.7 and Lua 5.1 as of now.
 The `tui` command is for interactive text-based user interface using ncurses.
 It provides basic functionality of `graph`, `report` and `info` commands as of
 now.
+
+# Resolving struct fields passed by reference (experimental)
+
+With `--auto-args`, uftrace can expand **fields of a struct passed by reference** (e.g., a parameter of type `struct S*`) and pretty-print the member values inside the synthesized argument string.
+
+### Supported
+
+* **Base types:** `int`, `unsigned`, `bool`, `float`, `double`, `long double`
+* **Pointers to base types:** e.g., `int*` (dereferenced once and shown)
+* **`char*` members:** printed as bounded C strings
+
+### Not yet supported
+
+* **Nested aggregates** (members that are `struct/union/class`, or pointers to those): currently only the pointer value to other base type is shown
+
+### Example
+
+```c
+struct Person {
+    int    *age;
+    long long ll;
+    float   height;
+    char   *name;
+};
+
+int print_person(struct Person *p) {
+    printf("address of struct is : %p\n", p);
+    printf("Person with address %p : Name: %s, Age: %p, Height: %.5f meters\n",
+           p, p->name, p->age, p->height);
+    return 0;
+}
+```
+
+Run with dynamic patching and auto-args:
+
+```bash
+$ uftrace -P . --auto-args arg_struct_person
+address of struct is : 0x7fff3079f540
+Person with address 0x7fff3079f540 : Name: John Don, Age: 0x7fff3079f52c, Height: 180.45000 meters
+# DURATION     TID      FUNCTION
+            [  94376] | main() {
+            [  94376] |   print_person("Person {\n  age : 33\n  ll : 33\n  height : 180.4500000\n  name : John Don\n}") {
+ 185.720 us [  94376] |     printf("address of struct is : %p\n") = 38;
+   4.597 us [  94376] |     printf("Person with address %p : Name: %s, Age: %p, Height: %.5f meters\n") = 99;
+ 199.957 us [  94376] |   } = 0; /* print_person */
+ 202.433 us [  94376] | } = 0; /* main */
+```
+
+In the synthesized argument string, the `Person{...}` block shows:
+
+* `age : 33` (value read via the `int*` member),
+* `ll : 33`,
+* `height : 180.4500000`,
+* `name : John Don`.
+
+> **Note:** This feature relies on DWARF debug info to discover member layouts and types. If debug info is missing or incomplete, uftrace falls back to the regular behavior.
 
 
 Limitations

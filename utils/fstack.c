@@ -1318,9 +1318,27 @@ static int read_task_arg(struct uftrace_task_reader *task, struct uftrace_arg_sp
 			if (feof(fp))
 				return -1;
 		}
-
 		size = *(unsigned short *)(args->data + args->len);
 		args->len += 2;
+	}
+
+	if (spec->fmt == ARG_FMT_INT_PTR) {
+		size = sizeof(int);
+	}
+
+	if (spec->fmt == ARG_FMT_STRUCT && spec->is_ptr == 1) {
+		args->data = xrealloc(args->data, args->len + 2);
+
+		if (fread(args->data + args->len, 2, 1, fp) != 1) {
+			if (feof(fp))
+				return -1;
+		}
+		size = *(unsigned short *)(args->data + args->len);
+		args->len += 2;
+	}
+
+	if (spec->fmt == ARG_FMT_INT_PTR) {
+		size = sizeof(int);
 	}
 
 	rem = (args->len + size) % 4;

@@ -19,6 +19,7 @@ enum uftrace_arg_format {
 	ARG_FMT_PTR,
 	ARG_FMT_ENUM,
 	ARG_FMT_STRUCT,
+	ARG_FMT_INT_PTR
 };
 
 #define ARG_TYPE_INDEX 0
@@ -53,6 +54,9 @@ struct uftrace_arg_spec {
 	};
 	char *type_name;
 	short struct_regs[4];
+	// adding address of struct;
+	int is_ptr;
+	struct resolved_struct_type *resolved_struct;
 };
 
 struct uftrace_filter_setting;

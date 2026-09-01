@@ -123,6 +123,10 @@ unsigned long plthook_return_fn;
 /* do not hook return address and inject EXIT record between functions */
 bool mcount_estimate_return;
 
+__weak void dynamic_return(void)
+{
+}
+
 /* list of watch points (of global variables) */
 static LIST_HEAD(mcount_watch_list);
 
@@ -422,12 +426,9 @@ struct uftrace_triggers_info *mcount_trigger_init(struct uftrace_filter_setting 
 	if (needs_debug_info) {
 		prepare_debug_info(&mcount_sym_info, filter_setting->ptype, argument_str,
 				   retval_str, !!autoargs_str, !!patch_str);
+
 		save_debug_info(&mcount_sym_info, mcount_sym_info.dirname);
 	}
-
-	if (!filter_str && !trigger_str && !argument_str && !retval_str && !autoargs_str &&
-	    !caller_str && !loc_str)
-		return NULL;
 
 	triggers = xzalloc(sizeof(*triggers));
 	triggers->root = RB_ROOT;
