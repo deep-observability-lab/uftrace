@@ -67,7 +67,7 @@ struct uftrace_arg_spec {
 	struct resolved_struct_type *resolved_struct;	
 	// additional fields for struct's field filtering
 	int field_depth;
-	struct argspec_field_setep *field_steps;
+	struct argspec_field_step *field_steps;
 };
 
 struct uftrace_filter_setting;
