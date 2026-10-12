@@ -41,11 +41,11 @@ enum uftrace_arg_format {
 #define RETVAL_IDX 0
 
 struct field_access_step {
+	char *name;
 	int offset;
 	bool is_pointer;
 	int size;
 	enum uftrace_arg_format fmt;
-	unsigned char type;
 };
 
 struct uftrace_arg_spec {
@@ -67,7 +67,7 @@ struct uftrace_arg_spec {
 	struct resolved_struct_type *resolved_struct;	
 	// additional fields for struct's field filtering
 	int field_depth;
-	struct argspec_field_step *field_steps;
+	struct field_access_step *field_steps;
 };
 
 struct uftrace_filter_setting;

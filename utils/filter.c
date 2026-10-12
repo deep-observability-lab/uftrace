@@ -846,7 +846,15 @@ static int parse_cond_action(char *action, struct uftrace_trigger *tr,
 	int ret = -1;
 	struct uftrace_arg_spec *arg;
 
-	pos = strpbrk(expr, "!<=>&");
+	pos = expr;
+	while((pos = strpbrk(pos, "!<=>&")) != NULL) {
+		if (*pos == '>' && pos > expr && *(pos - 1) == '-'){
+			pos++;
+			continue;
+		}
+		break;
+	}
+
 	if (pos == NULL) {
 		pr_use("cannot find condition op\n");
 		return -1;
