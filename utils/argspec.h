@@ -54,9 +54,7 @@ struct uftrace_arg_spec {
 	};
 	char *type_name;
 	short struct_regs[4];
-	// adding address of struct;
 	int is_ptr;
-	struct resolved_struct_type *resolved_struct;
 };
 
 struct uftrace_filter_setting;
