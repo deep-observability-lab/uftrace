@@ -247,7 +247,7 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 		}
 	}
 	else {
-		narg = xmalloc(sizeof(*narg));
+		narg = xzalloc(sizeof(*narg));
 		narg->idx = arg->idx;
 		narg->fmt = arg->fmt;
 		narg->size = arg->size;
