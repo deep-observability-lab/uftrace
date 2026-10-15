@@ -234,7 +234,6 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 			oarg->type = arg->type;
 			oarg->reg_idx = arg->reg_idx;
 			oarg->struct_reg_cnt = arg->struct_reg_cnt;
-			oarg->resolved_struct = arg->resolved_struct;
 			oarg->is_ptr = arg->is_ptr;
 
 			if (arg->type_name)
@@ -255,7 +254,6 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 		narg->type = arg->type;
 		narg->reg_idx = arg->reg_idx;
 		narg->struct_reg_cnt = arg->struct_reg_cnt;
-		narg->resolved_struct = arg->resolved_struct;
 		narg->is_ptr = arg->is_ptr;
 
 		if (arg->type_name)
@@ -267,7 +265,7 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 			memcpy(narg->struct_regs, arg->struct_regs, sizeof(arg->struct_regs));
 		}
 
-		list_add_tail(&narg->list, &oarg->list);
+		list_add_tail(&narg->list, arg_list);
 	}
 }
 

@@ -53,9 +53,6 @@ struct uftrace_arg_spec *parse_argspec(char *str, struct uftrace_filter_setting 
 	int bit;
 	char *suffix;
 	char *p;
-	char *ref;
-	char *addr_str;
-	unsigned long long addr;
 
 	if (!strncmp(str, "arg", 3) && isdigit(str[3])) {
 		idx = strtol(str + 3, &suffix, 0);
@@ -197,25 +194,19 @@ struct uftrace_arg_spec *parse_argspec(char *str, struct uftrace_filter_setting 
 		arg->struct_reg_cnt = 0;
 
 		if (*suffix == ':') {
+			size_t tlen;
 			arg->type_name = xstrdup(&suffix[1]);
-
-			ref = strstr(arg->type_name, "/&");
-			if (ref) {
-				*ref = '\0';
-
-				addr_str = ref + 2;
-				addr = strtoull(addr_str, NULL, 0);
-				arg->resolved_struct =
-					(struct resolved_struct_type *)(uintptr_t)addr;
-				arg->type = ARG_TYPE_REG;
-				arg->size = sizeof(void *);
-				arg->is_ptr = 1;
-			}
-
 			p = strchr(arg->type_name, '%');
 			if (p)
 				*p = '\0';
-			suffix += strlen(arg->type_name) + 1;
+
+			tlen = strlen(arg->type_name);
+			if (tlen > 0 &&
+			    (arg->type_name[tlen - 1] == '*' || arg->type_name[tlen - 1] == '&')) {
+				arg->type_name[tlen - 1] = '\0';
+				arg->is_ptr = 1;
+			}
+			suffix += strlen(arg->type_name) + (arg->is_ptr ? 2 : 1);
 		}
 
 		pr_dbg2("parsing argspec for struct: %s\n", arg->type_name ?: "(no name)");

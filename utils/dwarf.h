@@ -36,19 +36,20 @@ struct uftrace_dbg_loc {
 struct resolved_struct_type;
 
 struct resolved_member {
-	const char *name;
+	char *name;
 	int offset;
 	int size;
 	int is_ptr;
-	char format; // 'i', 'f', etc.
-	struct resolved_struct_type *nested_type; // NULL unless nested
+	char format; /* 'i', 'u', 'f', 'p', 'c', etc. */
+	struct resolved_struct_type *nested_type;
 };
 
 struct resolved_struct_type {
-	const char *type_name;
+	struct rb_node node;
+	char *type_name;
 	struct resolved_member *members;
 	int num_members;
-	struct list_head list; // optional for global list
+	int size;
 };
 
 struct uftrace_dbg_info {
@@ -64,6 +65,8 @@ struct uftrace_dbg_info {
 	struct rb_root rets;
 	/* rb tree of enum tags/values */
 	struct rb_root enums;
+	/* rb tree of struct layouts */
+	struct rb_root structs;
 	/* rb tree of file info */
 	struct rb_root files;
 	/* array of location - same order as symbol */
@@ -98,5 +101,11 @@ extern void load_debug_info(struct uftrace_sym_info *sinfo, bool needs_srcline,
 extern void save_debug_file(FILE *fp, char code, char *str, unsigned long val);
 extern void load_module_debug_info(struct uftrace_module *mod, const char *dirname,
 				   bool needs_srcline, bool needs_callsite);
+
+struct resolved_struct_type *find_struct_type(struct rb_root *root, const char *name);
+void add_struct_type(struct rb_root *root, struct resolved_struct_type *st);
+void release_struct_def(struct rb_root *root);
+void save_struct_def(struct rb_root *root, FILE *fp);
+int parse_struct_string(char *str, struct rb_root *root);
 
 #endif /* UFTRACE_DWARF_H */

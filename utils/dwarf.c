@@ -853,212 +853,283 @@ static char dwarf_type_fmt_char(Dwarf_Die *die)
 
 static bool resolve_type_info(Dwarf_Die *die, struct arg_data *ad, struct type_data *td);
 
+struct resolved_struct_type *find_struct_type(struct rb_root *root, const char *name)
+{
+	struct rb_node *parent = NULL;
+	struct rb_node **p;
+	struct resolved_struct_type *iter;
+	int cmp;
+
+	if (!root || !name)
+		return NULL;
+
+	p = &root->rb_node;
+	while (*p) {
+		parent = *p;
+		iter = rb_entry(parent, struct resolved_struct_type, node);
+
+		cmp = strcmp(iter->type_name, name);
+		if (cmp == 0)
+			return iter;
+
+		if (cmp < 0)
+			p = &parent->rb_left;
+		else
+			p = &parent->rb_right;
+	}
+	return NULL;
+}
+
+void add_struct_type(struct rb_root *root, struct resolved_struct_type *st)
+{
+	struct rb_node *parent = NULL;
+	struct rb_node **p;
+	struct resolved_struct_type *iter;
+	int cmp;
+
+	if (!root || !st || !st->type_name)
+		return;
+
+	p = &root->rb_node;
+	while (*p) {
+		parent = *p;
+		iter = rb_entry(parent, struct resolved_struct_type, node);
+
+		cmp = strcmp(iter->type_name, st->type_name);
+		if (cmp == 0)
+			return;
+
+		if (cmp < 0)
+			p = &parent->rb_left;
+		else
+			p = &parent->rb_right;
+	}
+
+	rb_link_node(&st->node, parent, p);
+	rb_insert_color(&st->node, root);
+}
+
+static void free_struct_type(struct resolved_struct_type *st)
+{
+	int i;
+
+	if (!st)
+		return;
+
+	free(st->type_name);
+	for (i = 0; i < st->num_members; i++)
+		free(st->members[i].name);
+	free(st->members);
+	free(st);
+}
+
+void release_struct_def(struct rb_root *root)
+{
+	struct rb_node *node;
+	struct resolved_struct_type *st;
+
+	if (!root)
+		return;
+
+	node = rb_first(root);
+	while (node) {
+		st = rb_entry(node, struct resolved_struct_type, node);
+		node = rb_next(node);
+
+		rb_erase(&st->node, root);
+		free_struct_type(st);
+	}
+}
+
+void save_struct_def(struct rb_root *root, FILE *fp)
+{
+	struct rb_node *node;
+	struct resolved_struct_type *st;
+	int i;
+
+	if (!root || !fp)
+		return;
+
+	node = rb_first(root);
+	while (node) {
+		st = rb_entry(node, struct resolved_struct_type, node);
+		save_debug_file(fp, 'S', st->type_name, 0);
+		fprintf(fp, " %d {", st->size);
+		for (i = 0; i < st->num_members; i++) {
+			struct resolved_member *m = &st->members[i];
+
+			fprintf(fp, "%s%s:%d:%d:%c:%d", i > 0 ? "," : "", m->name ?: "<anon>",
+				m->offset, m->size, m->format, m->is_ptr);
+		}
+		fprintf(fp, "}\n");
+		node = rb_next(node);
+	}
+}
+
+int parse_struct_string(char *str, struct rb_root *root)
+{
+	char *p, *brace, *close_brace, *name;
+	int size = 0;
+	struct resolved_struct_type *st;
+	struct strv members = STRV_INIT;
+	char *member_str;
+	int idx;
+
+	if (strncmp(str, "struct ", 7) != 0)
+		return -1;
+
+	p = str + 7;
+	brace = strchr(p, '{');
+	if (!brace)
+		return -1;
+
+	close_brace = strchr(brace, '}');
+	if (!close_brace)
+		return -1;
+
+	*close_brace = '\0';
+	*brace = '\0';
+
+	name = p;
+	while (*name == ' ')
+		name++;
+
+	p = strchr(name, ' ');
+	if (p) {
+		*p = '\0';
+		size = strtol(p + 1, NULL, 0);
+	}
+
+	st = xzalloc(sizeof(*st));
+	st->type_name = xstrdup(name);
+	st->size = size;
+
+	strv_split(&members, brace + 1, ",");
+	strv_for_each(&members, member_str, idx) {
+		char *f_name, *f_off, *f_sz, *f_fmt, *f_ptr;
+		struct resolved_member *m;
+
+		f_name = member_str;
+		f_off = strchr(f_name, ':');
+		if (!f_off)
+			continue;
+		*f_off++ = '\0';
+
+		f_sz = strchr(f_off, ':');
+		if (!f_sz)
+			continue;
+		*f_sz++ = '\0';
+
+		f_fmt = strchr(f_sz, ':');
+		if (!f_fmt)
+			continue;
+		*f_fmt++ = '\0';
+
+		f_ptr = strchr(f_fmt, ':');
+		if (f_ptr)
+			*f_ptr++ = '\0';
+
+		st->members = xrealloc(st->members,
+				       sizeof(struct resolved_member) * (st->num_members + 1));
+		m = &st->members[st->num_members++];
+		m->name = xstrdup(f_name);
+		m->offset = strtol(f_off, NULL, 0);
+		m->size = strtol(f_sz, NULL, 0);
+		m->format = *f_fmt;
+		m->is_ptr = f_ptr ? strtol(f_ptr, NULL, 0) : 0;
+		m->nested_type = NULL;
+	}
+	strv_free(&members);
+
+	add_struct_type(root, st);
+	return 0;
+}
+
 static void place_struct_members_passed_by_reference(Dwarf_Die *die, struct arg_data *ad,
 						     struct type_data *td)
 {
 	Dwarf_Die child;
-	struct param_data pd;
 	const char *sname;
+	struct resolved_struct_type *res = NULL;
 	char *p;
-	struct resolved_struct_type *res;
-	const char *fname;
-	Dwarf_Attribute loc_attr;
-	Dwarf_Word byte_off = 0;
-	size_t fbytes;
-	char fcode;
-	struct resolved_struct_type *nested;
-	Dwarf_Attribute ftype_attr;
-	Dwarf_Die fref;
-	Dwarf_Attribute ta;
-	Dwarf_Die pointee, bare;
-	int ptag;
-	struct resolved_member *m;
-
-	setup_param_data(&pd);
-	ad->struct_reg_cnt = 0;
-	ad->struct_passed = true;
 
 	sname = dwarf_diename(die);
 	if (!sname)
 		sname = "<anon>";
 
 	td->name = xstrdup(sname);
-	/* remove long C++ type name to prevent confusion */
-
 	p = strpbrk(td->name + 1, "< ({[");
 	if (p)
 		*p = '\0';
 
-	if (!strcmp(td->name, "basic_string"))
-		pd.lookup_string = true;
+	if (ad->dinfo) {
+		res = find_struct_type(&ad->dinfo->structs, td->name);
+		if (res) {
+			td->resolved = res;
+			return;
+		}
+	}
 
-	// Allocate resolved type
-	td->resolved = xzalloc(sizeof(struct resolved_struct_type));
-	res = td->resolved;
+	res = xzalloc(sizeof(*res));
 	res->type_name = xstrdup(td->name);
-	res->members = NULL;
+	res->size = (int)(td->size / 8);
 	res->num_members = 0;
+	res->members = NULL;
 
-	if (dwarf_child(die, &child) != 0)
-		return; /* no child = no member */
+	if (dwarf_child(die, &child) == 0) {
+		do {
+			if (dwarf_tag(&child) == DW_TAG_member) {
+				const char *fname = dwarf_diename(&child);
+				Dwarf_Attribute loc_attr;
+				Dwarf_Word byte_off = 0;
+				size_t fbytes = sizeof(long);
+				char fcode = 'i';
+				int is_member_ptr = 0;
+				Dwarf_Attribute ftype_attr;
+				Dwarf_Die fref;
+				struct resolved_member *m;
 
-	do {
-		int is_member_ptr = 0;
-		// maybe need to verify which it is pointer to struct or passed_by_value
-		switch (dwarf_tag(&child)) {
-		case DW_TAG_member:
-			get_param_class(&child, ad, &pd);
+				if (!dwarf_attr(&child, DW_AT_data_member_location, &loc_attr))
+					continue;
+				if (dwarf_formudata(&loc_attr, &byte_off) != 0)
+					continue;
 
-			fname = dwarf_diename(&child);
+				if (dwarf_attr(&child, DW_AT_type, &ftype_attr) &&
+				    dwarf_formref_die(&ftype_attr, &fref)) {
+					int tag = dwarf_tag(&fref);
 
-			if (fname && !strcmp(fname, "_M_dataplus")) {
-				td->fmt = ARG_FMT_STD_STRING;
-				td->size = sizeof(long) * 8;
-				return;
-			}
-
-			if (!fname) {
-				fname = "<anon>";
-			}
-			if (!dwarf_attr(&child, DW_AT_data_member_location, &loc_attr))
-				break;
-			if (dwarf_formudata(&loc_attr, &byte_off) != 0)
-				break;
-			fbytes = sizeof(long);
-			fcode = 'i';
-			nested = NULL;
-			if (dwarf_attr(&child, DW_AT_type, &ftype_attr) &&
-			    dwarf_formref_die(&ftype_attr, &fref)) {
-				int tag = dwarf_tag(&fref);
-				// nested
-				if (tag == DW_TAG_structure_type || tag == DW_TAG_union_type ||
-				    tag == DW_TAG_class_type) { // || tag == DW_TAG_pointer_type || tag == DW_TAG_reference_type
-					struct type_data nested_td2 = {
-						.fmt = ARG_FMT_PTR,
-						.arg_data = ad,
-					};
-					/* TODO
-							handle struct as a member of another struct
-						*/
-					if (nested_td2.resolved)
-						nested = nested_td2.resolved;
-					fbytes = nested_td2.size;
-					fcode = 't';
-				}
-				else if (tag == DW_TAG_pointer_type) {
-					fcode = dwarf_type_fmt_char(&fref);
-					is_member_ptr = 1;
-					fbytes = sizeof(
-						void *); // size of the FIELD (the pointer itself)
-					// fcode  = 'p';               // field is a pointer
-					// 1) Get the pointee DIE: fref is the pointer_type; follow its DW_AT_type
-					if (dwarf_attr(&fref, DW_AT_type, &ta) &&
-					    dwarf_formref_die(&ta, &pointee)) {
-						/*
-								add a loop for has_attr
-							*/
-						bare = pointee;
-						ptag = dwarf_tag(&bare);
-						if (ptag == DW_TAG_structure_type ||
-						    ptag == DW_TAG_union_type ||
-						    ptag == DW_TAG_class_type) {
-							// 2) Pointer to aggregate: resolve its layout ON THE POINTEE DIE
-							struct type_data nested_td = { 0 };
-							nested_td.arg_data = ad;
-							if (!resolve_type_info(&bare, ad,
-									       &nested_td)) {
-								// tolerate incomplete forward decls etc.
-								/* TODO
-										compelete the logic for resolve_type_info when struct is nested;
-									*/
-								pr_dbg("[Error] resolve_type_info: support for nested struct is not implemented yet.\n");
-							}
-							else if (nested_td.resolved) {
-								nested =
-									nested_td.resolved; // save for recursive dump
-							}
-							fcode = 't'; // pointee is an aggregate
-						}
-						else if (ptag == DW_TAG_base_type ||
-							 ptag == DW_TAG_enumeration_type) {
-							// 3) Pointer to scalar/enum: remember pointee kind/size for later dumping
-							// fcode = dwarf_type_fmt_char(&bare);           // 'i','f','c','e'...
-							// store in your resolved_member (add these fields if you haven't)
-							// m->pointee_fmt  = fcode;
-							// m->pointee_size = elem_sz;
-							if (fcode == 'c')
-								fbytes = sizeof(void *);
-							else
-								fbytes = dwarf_type_size_bytes(
-									&fref);
-						}
-						else if (ptag == DW_TAG_array_type) {
-							// pointer to array (e.g., T (*)[N]) – treat as aggregate unless you want more
-							fcode = 't';
-						}
-						else if (ptag == DW_TAG_subroutine_type) {
-							// function pointer
-							fcode = 'p';
-						}
-						else {
-							// unknown/other
-							fcode = 'p';
-						}
+					if (tag == DW_TAG_pointer_type ||
+					    tag == DW_TAG_reference_type) {
+						is_member_ptr = 1;
+						fbytes = sizeof(void *);
+						fcode = dwarf_type_fmt_char(&fref);
+					}
+					else {
+						fbytes = dwarf_type_size_bytes(&fref);
+						if (fbytes == 0)
+							fbytes = sizeof(long);
+						fcode = dwarf_type_fmt_char(&fref);
 					}
 				}
 
-				// base type
-				else {
-					fbytes = dwarf_type_size_bytes(&fref);
-					if (fbytes == 0)
-						fbytes = sizeof(long);
-					fcode = dwarf_type_fmt_char(&fref);
-				}
+				res->members =
+					xrealloc(res->members, sizeof(struct resolved_member) *
+								       (res->num_members + 1));
+				m = &res->members[res->num_members++];
+				m->name = xstrdup(fname ?: "<anon>");
+				m->offset = (int)byte_off;
+				m->size = (int)fbytes;
+				m->format = fcode;
+				m->is_ptr = is_member_ptr;
+				m->nested_type = NULL;
 			}
-			// Store member in resolved type
-			res->members = xrealloc(res->members, sizeof(struct resolved_member) *
-								      (res->num_members + 1));
-			m = &res->members[res->num_members++];
-			m->name = xstrdup(fname);
-			m->offset = byte_off;
-			m->size = fbytes;
-			m->format = fcode;
-			m->nested_type = nested;
-			m->is_ptr = is_member_ptr;
-			break;
-		case DW_TAG_inheritance:
-			/* TODO */
-			break;
+		} while (dwarf_siblingof(&child, &child) == 0);
+	}
 
-		case DW_TAG_subprogram:
-			/*
-				* FIXME: assume pass via stack if it has a (probably
-				* non-trivial) destructor or a virtual function
-				*/
-			if (!ad->class_via_ptr)
-				break;
-			// if (ad->reg_pos >= ad->reg_max)
-			// 	goto pass_via_stack;
-			/* TODo */
-			sname = dwarf_diename(&child);
-			if ((sname && sname[0] == '~') || dwarf_hasattr(die, DW_AT_virtuality)) {
-				pr_dbg3("non-trivial class passed via pointer\n");
-				ad->struct_regs[0] = PARAM_CLASS_PTR;
-				ad->struct_reg_cnt = 1;
-				return;
-			}
-			break;
+	if (ad->dinfo)
+		add_struct_type(&ad->dinfo->structs, res);
 
-		default:
-			break;
-		}
-	} while (dwarf_siblingof(&child, &child) == 0);
-	/* TODO
-	   compelete this with correct logic after i use this method only for structs which are passed by reference
-	   i resolve values of members of an struct , what else should i do ? i call this function in resolve_type_info , when
-	   this function encounter input argument as a reference passed struct ,
-	*/
-	return;
+	td->resolved = res;
 }
 
 static void place_struct_members(Dwarf_Die *die, struct arg_data *ad, struct type_data *td)
@@ -1395,19 +1466,6 @@ static bool add_type_info(char *spec, size_t len, Dwarf_Die *die, struct arg_dat
 	case ARG_FMT_STRUCT:
 		if (ad->idx) { /* for arguments */
 			snprintf(spec, len, "arg%d/t%d", ad->idx, ad->last_size);
-			if (data.pointer) {
-				size_t oldlen = strlen(data.name);
-				size_t newlen;
-				// Format pointer as string
-				char addr_buf[32];
-				snprintf(addr_buf, sizeof(addr_buf), "%p", (void *)data.resolved);
-				// Allocate enough space: old + "/&" + pointer + '\0'
-				newlen = oldlen + 2 + strlen(addr_buf) + 1;
-				data.name = realloc(data.name, newlen);
-				// Concatenate
-				strcat(data.name, "/&");
-				strcat(data.name, addr_buf);
-			}
 		}
 		else { /* for return values */
 			char sz[16];
@@ -1427,6 +1485,9 @@ static bool add_type_info(char *spec, size_t len, Dwarf_Die *die, struct arg_dat
 			else {
 				strcat(spec, data.name);
 			}
+
+			if (data.pointer)
+				strcat(spec, "*");
 		}
 		break;
 	default:
@@ -1675,8 +1736,7 @@ static int get_argspec(Dwarf_Die *die, void *data)
 			ad->idx--;
 			continue;
 		}
-		if (ad->is_passed_by_ref == 0)
-			add_location(buf, sizeof(buf), &arg, ad);
+		add_location(buf, sizeof(buf), &arg, ad);
 		if (ad->argspec == NULL)
 			xasprintf(&ad->argspec, "@%s", buf);
 		else
@@ -2204,6 +2264,7 @@ static void release_debug_info(struct uftrace_dbg_info *dinfo)
 	free_debug_entry(&dinfo->args);
 	free_debug_entry(&dinfo->rets);
 	release_enum_def(&dinfo->enums);
+	release_struct_def(&dinfo->structs);
 	release_debug_file(&dinfo->files);
 
 	free(dinfo->locs);
@@ -2428,6 +2489,9 @@ void save_debug_file(FILE *fp, char code, char *str, unsigned long val)
 		 */
 		fprintf(fp, "enum %s {%s}\n", str, (char *)val);
 		break;
+	case 'S':
+		fprintf(fp, "struct %s", str);
+		break;
 	case 'L':
 		/* line number and file name */
 		fprintf(fp, "%ld %s\n", val, str);
@@ -2455,6 +2519,7 @@ static void save_debug_entries(struct uftrace_dbg_info *dinfo, const char *dirna
 		fprintf(fp, "# build-id: %s\n", build_id);
 
 	save_enum_def(&dinfo->enums, fp);
+	save_struct_def(&dinfo->structs, fp);
 
 	for (i = 0; i < dinfo->nr_locs; i++) {
 		struct uftrace_dbg_loc *loc = &dinfo->locs[i];
@@ -2541,6 +2606,7 @@ static int load_debug_file(struct uftrace_dbg_info *dinfo, struct uftrace_symtab
 	dinfo->args = RB_ROOT;
 	dinfo->rets = RB_ROOT;
 	dinfo->enums = RB_ROOT;
+	dinfo->structs = RB_ROOT;
 	dinfo->files = RB_ROOT;
 	dinfo->loaded = true;
 
@@ -2588,6 +2654,10 @@ static int load_debug_file(struct uftrace_dbg_info *dinfo, struct uftrace_symtab
 			break;
 		case 'E':
 			if (parse_enum_string(&line[3], &dinfo->enums))
+				goto out;
+			break;
+		case 'S':
+			if (parse_struct_string(&line[3], &dinfo->structs))
 				goto out;
 			break;
 		case 'L':
