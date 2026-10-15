@@ -847,8 +847,8 @@ static int parse_cond_action(char *action, struct uftrace_trigger *tr,
 	struct uftrace_arg_spec *arg;
 
 	pos = expr;
-	while((pos = strpbrk(pos, "!<=>&")) != NULL) {
-		if (*pos == '>' && pos > expr && *(pos - 1) == '-'){
+	while ((pos = strpbrk(pos, "!<=>&")) != NULL) {
+		if (*pos == '>' && pos > expr && *(pos - 1) == '-') {
 			pos++;
 			continue;
 		}
