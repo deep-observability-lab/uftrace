@@ -246,7 +246,7 @@ static void add_arg_spec(struct list_head *arg_list, struct uftrace_arg_spec *ar
 		}
 	}
 	else {
-		narg = xmalloc(sizeof(*narg));
+		narg = xzalloc(sizeof(*narg));
 		narg->idx = arg->idx;
 		narg->fmt = arg->fmt;
 		narg->size = arg->size;
@@ -844,7 +844,15 @@ static int parse_cond_action(char *action, struct uftrace_trigger *tr,
 	int ret = -1;
 	struct uftrace_arg_spec *arg;
 
-	pos = strpbrk(expr, "!<=>&");
+	pos = expr;
+	while ((pos = strpbrk(pos, "!<=>&")) != NULL) {
+		if (*pos == '>' && pos > expr && *(pos - 1) == '-') {
+			pos++;
+			continue;
+		}
+		break;
+	}
+
 	if (pos == NULL) {
 		pr_use("cannot find condition op\n");
 		return -1;

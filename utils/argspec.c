@@ -78,6 +78,42 @@ struct uftrace_arg_spec *parse_argspec(char *str, struct uftrace_filter_setting 
 	arg = xzalloc(sizeof(*arg));
 	INIT_LIST_HEAD(&arg->list);
 
+	if (suffix && !strncmp(suffix, "->", 2)) {
+		int depth = 0;
+		char *p = suffix;
+
+		while (p && !strncmp(p, "->", 2)) {
+			char *field_start;
+
+			depth++;
+			p += 2;
+			field_start = p;
+
+			while (isalnum(*p) || *p == '_')
+				p++;
+
+			if (p == field_start || isdigit(*field_start)) {
+				pr_use("invalid field access spec: %s\n", str);
+				goto err;
+			}
+		}
+
+		arg->field_depth = depth;
+		arg->field_steps = xcalloc(depth, sizeof(struct field_access_step));
+
+		for (int i = 0; i < depth; i++) {
+			char *start;
+			suffix += 2;
+			start = suffix;
+
+			while (isalnum(*suffix) || *suffix == '_')
+				suffix++;
+
+			arg->field_steps[i].name = xstrndup(start, suffix - start);
+			arg->field_steps[i].fmt = ARG_FMT_AUTO;
+			arg->field_steps[i].size = 0;
+		}
+	}
 	if (suffix == NULL || *suffix == '\0')
 		goto out;
 	if (*suffix == '%')
@@ -263,6 +299,11 @@ out:
 	arg->size = size;
 	arg->type = type;
 
+	if (arg->field_depth > 0) {
+		arg->field_steps[arg->field_depth - 1].fmt = fmt;
+		arg->field_steps[arg->field_depth - 1].size = size;
+	}
+
 	return arg;
 
 err:
@@ -273,6 +314,15 @@ err:
 
 void free_arg_spec(struct uftrace_arg_spec *arg)
 {
+	if (arg == NULL)
+		return;
+
+	if (arg->field_steps) {
+		for (int i = 0; i < arg->field_depth; i++)
+			free(arg->field_steps[i].name);
+		free(arg->field_steps);
+	}
+
 	free(arg->type_name);
 	free(arg);
 }
