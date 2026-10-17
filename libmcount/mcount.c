@@ -410,6 +410,7 @@ struct uftrace_triggers_info *mcount_trigger_init(struct uftrace_filter_setting 
 
 	/* setup auto-args only if argument/return value is used */
 	if (argument_str || retval_str || autoargs_str ||
+	    (filter_str && strstr(filter_str, "->")) ||
 	    (trigger_str && (strstr(trigger_str, "arg") || strstr(trigger_str, "retval")))) {
 		setup_auto_args(filter_setting);
 		needs_debug_info = true;
@@ -425,7 +426,9 @@ struct uftrace_triggers_info *mcount_trigger_init(struct uftrace_filter_setting 
 	/* use debug info if available */
 	if (needs_debug_info) {
 		prepare_debug_info(&mcount_sym_info, filter_setting->ptype, argument_str,
-				   retval_str, !!autoargs_str, !!patch_str);
+				   retval_str,
+				   !!autoargs_str || (filter_str && strstr(filter_str, "->")),
+				   !!patch_str);
 
 		save_debug_info(&mcount_sym_info, mcount_sym_info.dirname);
 	}
@@ -1042,6 +1045,17 @@ enum filter_result mcount_entry_filter_check(struct mcount_thread_data *mtdp, un
 		ctx.arch = &mtdp->arch;
 
 		mcount_arch_get_arg(&ctx, &spec);
+
+		if (tr->cond.is_ptr) {
+			void *ptr = (void *)ctx.val.u;
+			void *target_addr = (char *)ptr + tr->cond.offset;
+
+			if (!ptr || !check_mem_region(&ctx, (unsigned long)target_addr))
+				return FILTER_OUT;
+
+			mcount_memset4(&ctx.val, 0, sizeof(ctx.val));
+			memcpy(&ctx.val, target_addr, tr->cond.size);
+		}
 
 		/* keep the filter only if the condition is met */
 		if (!uftrace_eval_cond(&tr->cond, &ctx.val))
