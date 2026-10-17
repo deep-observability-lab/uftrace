@@ -91,6 +91,9 @@ struct uftrace_filter_cond {
 	uint8_t size;
 	enum filter_cond_op op;
 	union uftrace_arg_val val;
+	int offset; /* offset for pointer argument, 0 if disabled */
+	uint8_t is_ptr; /* true if the argument is a pointer */
+	char *field_name; /* field name for struct field, NULL if disabled */
 };
 
 struct uftrace_trigger {

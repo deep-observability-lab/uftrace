@@ -1,7 +1,10 @@
+#include "utils/argspec.h"
 #include <fnmatch.h>
 #include <regex.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/utsname.h>
 
 /* This should be defined before #include "utils.h" */
@@ -372,6 +375,92 @@ static void prune_void_filter(struct rb_node *node, struct rb_root *root)
 	}
 }
 
+static int resolve_cond_struct_member(struct uftrace_filter *filter, struct uftrace_dbg_info *dinfo,
+				      struct uftrace_mmap *map,
+				      struct uftrace_filter_setting *setting)
+{
+	char *argspec_str;
+	struct strv args = STRV_INIT;
+	char *arg;
+	int i;
+	int ret = -1;
+	uint64_t sym_addr = filter->start - map->start;
+
+	argspec_str = get_dwarf_argspec(dinfo, filter->name, sym_addr);
+	if (!argspec_str) {
+		pr_dbg("failed to resolve struct member for %s\n", filter->name);
+		goto out;
+	}
+
+	if (*argspec_str == '@')
+		argspec_str++;
+
+	strv_split(&args, argspec_str, ",");
+
+	strv_for_each(&args, arg, i) {
+		struct uftrace_arg_spec *spec;
+		struct resolved_struct_type *st;
+
+		spec = parse_argspec(arg, setting);
+		if (!spec) {
+			pr_use("couldn't parse argspec %s when resoling cond struct member\n", arg);
+			goto out;
+		}
+
+		if (spec->idx != filter->trigger.cond.idx) {
+			free_arg_spec(spec);
+			continue;
+		}
+
+		if (spec->fmt != ARG_FMT_STRUCT) {
+			pr_warn("arg%d of %s is not a struct; "
+				"member condition cannot apply\n",
+				filter->trigger.cond.idx, filter->name);
+			free_arg_spec(spec);
+			goto out;
+		}
+
+		if (!spec->type_name) {
+			pr_dbg("no type info for arg%d of %s\n", filter->trigger.cond.idx,
+			       filter->name);
+			free_arg_spec(spec);
+			goto out;
+		}
+
+		if (!spec->is_ptr) {
+			pr_warn("arg%d of %s is not a struct pointer; "
+				"'->' dereference requires one\n",
+				filter->trigger.cond.idx, filter->name);
+			free_arg_spec(spec);
+			goto out;
+		}
+
+		st = find_struct_type(&dinfo->structs, spec->type_name);
+		if (!st) {
+			pr_warn("struct '%s' not found in debug info; rebuild full debug info?\n",
+				spec->type_name);
+			free_arg_spec(spec);
+			goto out;
+		}
+
+		for (int j = 0; j < st->num_members; j++) {
+			if (filter->trigger.cond.field_name &&
+			    strcmp(st->members[j].name, filter->trigger.cond.field_name) == 0) {
+				filter->trigger.cond.offset = st->members[j].offset;
+				filter->trigger.cond.size = st->members[j].size;
+				ret = 0;
+				break;
+			}
+		}
+		free_arg_spec(spec);
+		break;
+	}
+
+out:
+	strv_free(&args);
+	return ret;
+}
+
 /**
  * update_filter - add, change or remove registered filter
  * @root - registered filters RB tree
@@ -456,6 +545,7 @@ static int update_filter(struct rb_root *root, struct uftrace_filter *filter,
 	new->trigger.read = 0;
 	INIT_LIST_HEAD(&new->args);
 	new->trigger.pargs = &new->args;
+	new->trigger.cond.is_ptr = false;
 
 	update_trigger(new, tr, exact_match);
 	if (auto_arg)
@@ -463,6 +553,17 @@ static int update_filter(struct rb_root *root, struct uftrace_filter *filter,
 	if (auto_ret)
 		update_trigger(new, &auto_ret->trigger, exact_match);
 	tr->flags = orig_flags;
+
+	if (new->trigger.cond.is_ptr) {
+		int rc = resolve_cond_struct_member(new, dinfo, map, setting);
+
+		new->trigger.cond.field_name = NULL;
+
+		if (rc < 0) {
+			free(new);
+			return 0;
+		}
+	}
 
 	rb_link_node(&new->node, parent, p);
 	rb_insert_color(&new->node, root);
@@ -874,6 +975,15 @@ static int parse_cond_action(char *action, struct uftrace_trigger *tr,
 	if (arg->idx < 1 || arg->idx > 6) { /* don't support retval */
 		pr_use("only support up to 6 argument for now\n");
 		goto out;
+	}
+
+	if (arg->field_depth > 1) {
+		pr_use("nested struct field member conditions are not supported yet\n");
+		goto out;
+	}
+	if (arg->field_depth > 0) {
+		tr->cond.field_name = xstrdup(arg->field_steps[0].name);
+		tr->cond.is_ptr = true;
 	}
 
 	tr->cond.type = convert_arg_condtype(arg);
@@ -1327,6 +1437,8 @@ static void setup_trigger(const char *filter_str, struct uftrace_sym_info *sinfo
 next:
 		free_filter_pattern(&patt);
 		free(module);
+		free(tr.cond.field_name);
+		tr.cond.field_name = NULL;
 
 		while (!list_empty(&args)) {
 			arg = list_first_entry(&args, typeof(*arg), list);
