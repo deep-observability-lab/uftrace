@@ -853,198 +853,6 @@ static char dwarf_type_fmt_char(Dwarf_Die *die)
 
 static bool resolve_type_info(Dwarf_Die *die, struct arg_data *ad, struct type_data *td);
 
-struct resolved_struct_type *find_struct_type(struct rb_root *root, const char *name)
-{
-	struct rb_node *parent = NULL;
-	struct rb_node **p;
-	struct resolved_struct_type *iter;
-	int cmp;
-
-	if (!root || !name)
-		return NULL;
-
-	p = &root->rb_node;
-	while (*p) {
-		parent = *p;
-		iter = rb_entry(parent, struct resolved_struct_type, node);
-
-		cmp = strcmp(iter->type_name, name);
-		if (cmp == 0)
-			return iter;
-
-		if (cmp < 0)
-			p = &parent->rb_left;
-		else
-			p = &parent->rb_right;
-	}
-	return NULL;
-}
-
-void add_struct_type(struct rb_root *root, struct resolved_struct_type *st)
-{
-	struct rb_node *parent = NULL;
-	struct rb_node **p;
-	struct resolved_struct_type *iter;
-	int cmp;
-
-	if (!root || !st || !st->type_name)
-		return;
-
-	p = &root->rb_node;
-	while (*p) {
-		parent = *p;
-		iter = rb_entry(parent, struct resolved_struct_type, node);
-
-		cmp = strcmp(iter->type_name, st->type_name);
-		if (cmp == 0)
-			return;
-
-		if (cmp < 0)
-			p = &parent->rb_left;
-		else
-			p = &parent->rb_right;
-	}
-
-	rb_link_node(&st->node, parent, p);
-	rb_insert_color(&st->node, root);
-}
-
-static void free_struct_type(struct resolved_struct_type *st)
-{
-	int i;
-
-	if (!st)
-		return;
-
-	free(st->type_name);
-	for (i = 0; i < st->num_members; i++)
-		free(st->members[i].name);
-	free(st->members);
-	free(st);
-}
-
-void release_struct_def(struct rb_root *root)
-{
-	struct rb_node *node;
-	struct resolved_struct_type *st;
-
-	if (!root)
-		return;
-
-	node = rb_first(root);
-	while (node) {
-		st = rb_entry(node, struct resolved_struct_type, node);
-		node = rb_next(node);
-
-		rb_erase(&st->node, root);
-		free_struct_type(st);
-	}
-}
-
-void save_struct_def(struct rb_root *root, FILE *fp)
-{
-	struct rb_node *node;
-	struct resolved_struct_type *st;
-	int i;
-
-	if (!root || !fp)
-		return;
-
-	node = rb_first(root);
-	while (node) {
-		st = rb_entry(node, struct resolved_struct_type, node);
-		save_debug_file(fp, 'S', st->type_name, 0);
-		fprintf(fp, " %d {", st->size);
-		for (i = 0; i < st->num_members; i++) {
-			struct resolved_member *m = &st->members[i];
-
-			fprintf(fp, "%s%s:%d:%d:%c:%d", i > 0 ? "," : "", m->name ?: "<anon>",
-				m->offset, m->size, m->format, m->is_ptr);
-		}
-		fprintf(fp, "}\n");
-		node = rb_next(node);
-	}
-}
-
-int parse_struct_string(char *str, struct rb_root *root)
-{
-	char *p, *brace, *close_brace, *name;
-	int size = 0;
-	struct resolved_struct_type *st;
-	struct strv members = STRV_INIT;
-	char *member_str;
-	int idx;
-
-	if (strncmp(str, "struct ", 7) != 0)
-		return -1;
-
-	p = str + 7;
-	brace = strchr(p, '{');
-	if (!brace)
-		return -1;
-
-	close_brace = strchr(brace, '}');
-	if (!close_brace)
-		return -1;
-
-	*close_brace = '\0';
-	*brace = '\0';
-
-	name = p;
-	while (*name == ' ')
-		name++;
-
-	p = strchr(name, ' ');
-	if (p) {
-		*p = '\0';
-		size = strtol(p + 1, NULL, 0);
-	}
-
-	st = xzalloc(sizeof(*st));
-	st->type_name = xstrdup(name);
-	st->size = size;
-
-	strv_split(&members, brace + 1, ",");
-	strv_for_each(&members, member_str, idx) {
-		char *f_name, *f_off, *f_sz, *f_fmt, *f_ptr;
-		struct resolved_member *m;
-
-		f_name = member_str;
-		f_off = strchr(f_name, ':');
-		if (!f_off)
-			continue;
-		*f_off++ = '\0';
-
-		f_sz = strchr(f_off, ':');
-		if (!f_sz)
-			continue;
-		*f_sz++ = '\0';
-
-		f_fmt = strchr(f_sz, ':');
-		if (!f_fmt)
-			continue;
-		*f_fmt++ = '\0';
-
-		f_ptr = strchr(f_fmt, ':');
-		if (f_ptr)
-			*f_ptr++ = '\0';
-
-		st->members = xrealloc(st->members,
-				       sizeof(struct resolved_member) * (st->num_members + 1));
-		m = &st->members[st->num_members++];
-		m->name = xstrdup(f_name);
-		m->offset = strtol(f_off, NULL, 0);
-		m->size = strtol(f_sz, NULL, 0);
-		m->format = *f_fmt;
-		m->is_ptr = f_ptr ? strtol(f_ptr, NULL, 0) : 0;
-		m->nested_type = NULL;
-	}
-	strv_free(&members);
-
-	add_struct_type(root, st);
-	return 0;
-}
-
 static void place_struct_members_passed_by_reference(Dwarf_Die *die, struct arg_data *ad,
 						     struct type_data *td)
 {
@@ -2252,6 +2060,198 @@ static void release_dwarf_info(struct uftrace_dbg_info *dinfo)
 }
 
 #endif /* !HAVE_LIBDW */
+
+struct resolved_struct_type *find_struct_type(struct rb_root *root, const char *name)
+{
+	struct rb_node *parent = NULL;
+	struct rb_node **p;
+	struct resolved_struct_type *iter;
+	int cmp;
+
+	if (!root || !name)
+		return NULL;
+
+	p = &root->rb_node;
+	while (*p) {
+		parent = *p;
+		iter = rb_entry(parent, struct resolved_struct_type, node);
+
+		cmp = strcmp(iter->type_name, name);
+		if (cmp == 0)
+			return iter;
+
+		if (cmp < 0)
+			p = &parent->rb_left;
+		else
+			p = &parent->rb_right;
+	}
+	return NULL;
+}
+
+void add_struct_type(struct rb_root *root, struct resolved_struct_type *st)
+{
+	struct rb_node *parent = NULL;
+	struct rb_node **p;
+	struct resolved_struct_type *iter;
+	int cmp;
+
+	if (!root || !st || !st->type_name)
+		return;
+
+	p = &root->rb_node;
+	while (*p) {
+		parent = *p;
+		iter = rb_entry(parent, struct resolved_struct_type, node);
+
+		cmp = strcmp(iter->type_name, st->type_name);
+		if (cmp == 0)
+			return;
+
+		if (cmp < 0)
+			p = &parent->rb_left;
+		else
+			p = &parent->rb_right;
+	}
+
+	rb_link_node(&st->node, parent, p);
+	rb_insert_color(&st->node, root);
+}
+
+static void free_struct_type(struct resolved_struct_type *st)
+{
+	int i;
+
+	if (!st)
+		return;
+
+	free(st->type_name);
+	for (i = 0; i < st->num_members; i++)
+		free(st->members[i].name);
+	free(st->members);
+	free(st);
+}
+
+void release_struct_def(struct rb_root *root)
+{
+	struct rb_node *node;
+	struct resolved_struct_type *st;
+
+	if (!root)
+		return;
+
+	node = rb_first(root);
+	while (node) {
+		st = rb_entry(node, struct resolved_struct_type, node);
+		node = rb_next(node);
+
+		rb_erase(&st->node, root);
+		free_struct_type(st);
+	}
+}
+
+void save_struct_def(struct rb_root *root, FILE *fp)
+{
+	struct rb_node *node;
+	struct resolved_struct_type *st;
+	int i;
+
+	if (!root || !fp)
+		return;
+
+	node = rb_first(root);
+	while (node) {
+		st = rb_entry(node, struct resolved_struct_type, node);
+		save_debug_file(fp, 'S', st->type_name, 0);
+		fprintf(fp, " %d {", st->size);
+		for (i = 0; i < st->num_members; i++) {
+			struct resolved_member *m = &st->members[i];
+
+			fprintf(fp, "%s%s:%d:%d:%c:%d", i > 0 ? "," : "", m->name ?: "<anon>",
+				m->offset, m->size, m->format, m->is_ptr);
+		}
+		fprintf(fp, "}\n");
+		node = rb_next(node);
+	}
+}
+
+int parse_struct_string(char *str, struct rb_root *root)
+{
+	char *p, *brace, *close_brace, *name;
+	int size = 0;
+	struct resolved_struct_type *st;
+	struct strv members = STRV_INIT;
+	char *member_str;
+	int idx;
+
+	if (strncmp(str, "struct ", 7) != 0)
+		return -1;
+
+	p = str + 7;
+	brace = strchr(p, '{');
+	if (!brace)
+		return -1;
+
+	close_brace = strchr(brace, '}');
+	if (!close_brace)
+		return -1;
+
+	*close_brace = '\0';
+	*brace = '\0';
+
+	name = p;
+	while (*name == ' ')
+		name++;
+
+	p = strchr(name, ' ');
+	if (p) {
+		*p = '\0';
+		size = strtol(p + 1, NULL, 0);
+	}
+
+	st = xzalloc(sizeof(*st));
+	st->type_name = xstrdup(name);
+	st->size = size;
+
+	strv_split(&members, brace + 1, ",");
+	strv_for_each(&members, member_str, idx) {
+		char *f_name, *f_off, *f_sz, *f_fmt, *f_ptr;
+		struct resolved_member *m;
+
+		f_name = member_str;
+		f_off = strchr(f_name, ':');
+		if (!f_off)
+			continue;
+		*f_off++ = '\0';
+
+		f_sz = strchr(f_off, ':');
+		if (!f_sz)
+			continue;
+		*f_sz++ = '\0';
+
+		f_fmt = strchr(f_sz, ':');
+		if (!f_fmt)
+			continue;
+		*f_fmt++ = '\0';
+
+		f_ptr = strchr(f_fmt, ':');
+		if (f_ptr)
+			*f_ptr++ = '\0';
+
+		st->members = xrealloc(st->members,
+				       sizeof(struct resolved_member) * (st->num_members + 1));
+		m = &st->members[st->num_members++];
+		m->name = xstrdup(f_name);
+		m->offset = strtol(f_off, NULL, 0);
+		m->size = strtol(f_sz, NULL, 0);
+		m->format = *f_fmt;
+		m->is_ptr = f_ptr ? strtol(f_ptr, NULL, 0) : 0;
+		m->nested_type = NULL;
+	}
+	strv_free(&members);
+
+	add_struct_type(root, st);
+	return 0;
+}
 
 static void setup_debug_info(struct uftrace_dbg_info *dinfo)
 {
