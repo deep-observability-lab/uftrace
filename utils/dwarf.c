@@ -853,6 +853,70 @@ static char dwarf_type_fmt_char(Dwarf_Die *die)
 
 static bool resolve_type_info(Dwarf_Die *die, struct arg_data *ad, struct type_data *td);
 
+static void collect_struct_members(struct resolved_struct_type *res, Dwarf_Die *die,
+				   int byte_offset, int depth)
+{
+	if (depth > 16)
+		return;
+
+	do {
+		if (dwarf_tag(die) == DW_TAG_member) {
+			Dwarf_Die child;
+			const char *fname = dwarf_diename(die);
+			Dwarf_Attribute loc_attr;
+			Dwarf_Word byte_off = 0;
+			size_t fbytes = sizeof(long);
+			char fcode = 'i';
+			int is_member_ptr = 0;
+			Dwarf_Attribute ftype_attr;
+			Dwarf_Die fref;
+			struct resolved_member *m;
+
+			if (dwarf_attr(die, DW_AT_data_member_location, &loc_attr)) {
+				if (dwarf_formudata(&loc_attr, &byte_off) != 0)
+					continue;
+			}
+
+			if (dwarf_attr(die, DW_AT_type, &ftype_attr) &&
+			    dwarf_formref_die(&ftype_attr, &fref)) {
+				int tag = dwarf_tag(&fref);
+
+				if (!fname &&
+				    (tag == DW_TAG_union_type || tag == DW_TAG_structure_type)) {
+					if (dwarf_child(&fref, &child) == 0) {
+						collect_struct_members(res, &child,
+								       byte_off + byte_offset,
+								       depth + 1);
+						continue;
+					}
+				}
+
+				if (tag == DW_TAG_pointer_type || tag == DW_TAG_reference_type) {
+					is_member_ptr = 1;
+					fbytes = sizeof(void *);
+					fcode = dwarf_type_fmt_char(&fref);
+				}
+				else {
+					fbytes = dwarf_type_size_bytes(&fref);
+					if (fbytes == 0)
+						fbytes = sizeof(long);
+					fcode = dwarf_type_fmt_char(&fref);
+				}
+			}
+
+			res->members = xrealloc(res->members, sizeof(struct resolved_member) *
+								      (res->num_members + 1));
+			m = &res->members[res->num_members++];
+			m->name = xstrdup(fname ?: "<anon>");
+			m->offset = (int)byte_off + byte_offset;
+			m->size = (int)fbytes;
+			m->format = fcode;
+			m->is_ptr = is_member_ptr;
+			m->nested_type = NULL;
+		}
+	} while (dwarf_siblingof(die, die) == 0);
+}
+
 static void place_struct_members_passed_by_reference(Dwarf_Die *die, struct arg_data *ad,
 						     struct type_data *td)
 {
@@ -885,53 +949,7 @@ static void place_struct_members_passed_by_reference(Dwarf_Die *die, struct arg_
 	res->members = NULL;
 
 	if (dwarf_child(die, &child) == 0) {
-		do {
-			if (dwarf_tag(&child) == DW_TAG_member) {
-				const char *fname = dwarf_diename(&child);
-				Dwarf_Attribute loc_attr;
-				Dwarf_Word byte_off = 0;
-				size_t fbytes = sizeof(long);
-				char fcode = 'i';
-				int is_member_ptr = 0;
-				Dwarf_Attribute ftype_attr;
-				Dwarf_Die fref;
-				struct resolved_member *m;
-
-				if (!dwarf_attr(&child, DW_AT_data_member_location, &loc_attr))
-					continue;
-				if (dwarf_formudata(&loc_attr, &byte_off) != 0)
-					continue;
-
-				if (dwarf_attr(&child, DW_AT_type, &ftype_attr) &&
-				    dwarf_formref_die(&ftype_attr, &fref)) {
-					int tag = dwarf_tag(&fref);
-
-					if (tag == DW_TAG_pointer_type ||
-					    tag == DW_TAG_reference_type) {
-						is_member_ptr = 1;
-						fbytes = sizeof(void *);
-						fcode = dwarf_type_fmt_char(&fref);
-					}
-					else {
-						fbytes = dwarf_type_size_bytes(&fref);
-						if (fbytes == 0)
-							fbytes = sizeof(long);
-						fcode = dwarf_type_fmt_char(&fref);
-					}
-				}
-
-				res->members =
-					xrealloc(res->members, sizeof(struct resolved_member) *
-								       (res->num_members + 1));
-				m = &res->members[res->num_members++];
-				m->name = xstrdup(fname ?: "<anon>");
-				m->offset = (int)byte_off;
-				m->size = (int)fbytes;
-				m->format = fcode;
-				m->is_ptr = is_member_ptr;
-				m->nested_type = NULL;
-			}
-		} while (dwarf_siblingof(&child, &child) == 0);
+		collect_struct_members(res, &child, 0, 0);
 	}
 
 	if (ad->dinfo)
