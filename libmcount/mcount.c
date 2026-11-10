@@ -427,7 +427,8 @@ struct uftrace_triggers_info *mcount_trigger_init(struct uftrace_filter_setting 
 	if (needs_debug_info) {
 		prepare_debug_info(&mcount_sym_info, filter_setting->ptype, argument_str,
 				   retval_str,
-				   !!autoargs_str || (filter_str && strstr(filter_str, "->")),
+				   !!autoargs_str || (filter_str && strstr(filter_str, "->")) ||
+					   (trigger_str && strstr(trigger_str, "->")),
 				   !!patch_str);
 
 		save_debug_info(&mcount_sym_info, mcount_sym_info.dirname);
@@ -1057,9 +1058,9 @@ enum filter_result mcount_entry_filter_check(struct mcount_thread_data *mtdp, un
 			memcpy(&ctx.val, target_addr, tr->cond.size);
 		}
 
-		/* keep the filter only if the condition is met */
+		/* keep the trigger only if the condition is met */
 		if (!uftrace_eval_cond(&tr->cond, &ctx.val))
-			tr->flags &= ~TRIGGER_FL_FILTER;
+			tr->flags = 0;
 	}
 
 	if (tr->flags & TRIGGER_FL_FILTER) {
