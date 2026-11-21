@@ -1033,34 +1033,38 @@ enum filter_result mcount_entry_filter_check(struct mcount_thread_data *mtdp, un
 		mtdp->filter.in_count, mtdp->filter.out_count, mtdp->filter.depth);
 
 	if ((tr->flags & TRIGGER_FL_CONDITION) && regs) {
-		struct mcount_arg_context ctx;
-		struct uftrace_arg_spec spec = {
-			.idx = tr->cond.idx,
-			.fmt = ARG_FMT_AUTO,
-			.type = ARG_TYPE_INDEX,
-		};
+		for (size_t cond_idx = 0; cond_idx < tr->nr_conds; cond_idx++) {
+			struct mcount_arg_context ctx;
+			struct uftrace_arg_spec spec = {
+				.idx = tr->conds[cond_idx].idx,
+				.fmt = ARG_FMT_AUTO,
+				.type = ARG_TYPE_INDEX,
+			};
 
-		mcount_memset4(&ctx, 0, sizeof(ctx));
-		ctx.regs = regs;
-		ctx.regions = &mtdp->mem_regions;
-		ctx.arch = &mtdp->arch;
+			mcount_memset4(&ctx, 0, sizeof(ctx));
+			ctx.regs = regs;
+			ctx.regions = &mtdp->mem_regions;
+			ctx.arch = &mtdp->arch;
 
-		mcount_arch_get_arg(&ctx, &spec);
+			mcount_arch_get_arg(&ctx, &spec);
 
-		if (tr->cond.is_ptr) {
-			void *ptr = (void *)ctx.val.u;
-			void *target_addr = (char *)ptr + tr->cond.offset;
+			if (tr->conds[cond_idx].is_ptr) {
+				void *ptr = (void *)ctx.val.u;
+				void *target_addr = (char *)ptr + tr->conds[cond_idx].offset;
 
-			if (!ptr || !check_mem_region(&ctx, (unsigned long)target_addr))
-				return FILTER_OUT;
+				if (!ptr || !check_mem_region(&ctx, (unsigned long)target_addr))
+					return FILTER_OUT;
 
-			mcount_memset4(&ctx.val, 0, sizeof(ctx.val));
-			memcpy(&ctx.val, target_addr, tr->cond.size);
+				mcount_memset4(&ctx.val, 0, sizeof(ctx.val));
+				memcpy(&ctx.val, target_addr, tr->conds[cond_idx].size);
+			}
+
+			/* keep the trigger only if the condition is met */
+			if (!uftrace_eval_cond(&tr->conds[cond_idx], &ctx.val)) {
+				tr->flags = 0;
+				break;
+			}
 		}
-
-		/* keep the trigger only if the condition is met */
-		if (!uftrace_eval_cond(&tr->cond, &ctx.val))
-			tr->flags = 0;
 	}
 
 	if (tr->flags & TRIGGER_FL_FILTER) {
@@ -1512,7 +1516,6 @@ static int __mcount_entry(unsigned long *parent_loc, unsigned long child, struct
 	}
 
 	tr.flags = 0;
-	tr.cond.idx = 0;
 	filtered = mcount_entry_filter_check(mtdp, child, &tr, regs);
 	if (filtered != FILTER_IN) {
 		mcount_unguard_recursion(mtdp);

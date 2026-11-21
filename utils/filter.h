@@ -106,7 +106,8 @@ struct uftrace_trigger {
 	enum filter_mode fmode;
 	enum filter_mode lmode;
 	enum trigger_read_type read;
-	struct uftrace_filter_cond cond;
+	struct uftrace_filter_cond *conds;
+	size_t nr_conds;
 	struct list_head *pargs;
 };
 

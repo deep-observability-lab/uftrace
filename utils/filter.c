@@ -69,7 +69,9 @@ static void print_trigger(struct uftrace_trigger *tr)
 		if (tr->flags & TRIGGER_FL_CONDITION) {
 			char buf[64];
 
-			snprintf_trigger_cond(buf, sizeof(buf), &tr->cond);
+			for (size_t cond_idx = 0; cond_idx < tr->nr_conds; cond_idx++) {
+				snprintf_trigger_cond(buf, sizeof(buf), &tr->conds[cond_idx]);
+			}
 			pr_dbg("\tif %s", buf);
 		}
 		pr_dbg("\n");
@@ -289,16 +291,23 @@ void update_trigger(struct uftrace_filter *filter, struct uftrace_trigger *tr, b
 			/* updating filter also updates condition */
 			tr->clear_flags |= TRIGGER_FL_CONDITION;
 		}
-		if (tr->clear_flags & TRIGGER_FL_CONDITION)
-			memset(&filter->trigger.cond, 0, sizeof(tr->cond));
+		if (tr->clear_flags & TRIGGER_FL_CONDITION) {
+			free(filter->trigger.conds);
+			filter->trigger.conds = NULL;
+			filter->trigger.nr_conds = 0;
+		}
 	}
 
 	if (tr->flags & TRIGGER_FL_DEPTH)
 		filter->trigger.depth = tr->depth;
 	if (tr->flags & TRIGGER_FL_FILTER)
 		filter->trigger.fmode = tr->fmode;
-	if (tr->flags & TRIGGER_FL_CONDITION)
-		memcpy(&filter->trigger.cond, &tr->cond, sizeof(tr->cond));
+	if (tr->flags & TRIGGER_FL_CONDITION) {
+		free(filter->trigger.conds);
+		filter->trigger.conds = xmalloc(sizeof(*tr->conds) * tr->nr_conds);
+		memcpy(filter->trigger.conds, tr->conds, sizeof(*tr->conds) * tr->nr_conds);
+		filter->trigger.nr_conds = tr->nr_conds;
+	}
 	if (tr->flags & TRIGGER_FL_LOC)
 		filter->trigger.lmode = tr->lmode;
 
@@ -375,8 +384,9 @@ static void prune_void_filter(struct rb_node *node, struct rb_root *root)
 	}
 }
 
-static int resolve_cond_struct_member(struct uftrace_filter *filter, struct uftrace_dbg_info *dinfo,
-				      struct uftrace_mmap *map,
+static int resolve_cond_struct_member(struct uftrace_filter *filter,
+				      struct uftrace_filter_cond *cond,
+				      struct uftrace_dbg_info *dinfo, struct uftrace_mmap *map,
 				      struct uftrace_filter_setting *setting)
 {
 	char *argspec_str;
@@ -407,7 +417,7 @@ static int resolve_cond_struct_member(struct uftrace_filter *filter, struct uftr
 			goto out;
 		}
 
-		if (spec->idx != filter->trigger.cond.idx) {
+		if (spec->idx != cond->idx) {
 			free_arg_spec(spec);
 			continue;
 		}
@@ -415,14 +425,13 @@ static int resolve_cond_struct_member(struct uftrace_filter *filter, struct uftr
 		if (spec->fmt != ARG_FMT_STRUCT) {
 			pr_warn("arg%d of %s is not a struct; "
 				"member condition cannot apply\n",
-				filter->trigger.cond.idx, filter->name);
+				cond->idx, filter->name);
 			free_arg_spec(spec);
 			goto out;
 		}
 
 		if (!spec->type_name) {
-			pr_dbg("no type info for arg%d of %s\n", filter->trigger.cond.idx,
-			       filter->name);
+			pr_dbg("no type info for arg%d of %s\n", cond->idx, filter->name);
 			free_arg_spec(spec);
 			goto out;
 		}
@@ -430,7 +439,7 @@ static int resolve_cond_struct_member(struct uftrace_filter *filter, struct uftr
 		if (!spec->is_ptr) {
 			pr_warn("arg%d of %s is not a struct pointer; "
 				"'->' dereference requires one\n",
-				filter->trigger.cond.idx, filter->name);
+				cond->idx, filter->name);
 			free_arg_spec(spec);
 			goto out;
 		}
@@ -444,10 +453,10 @@ static int resolve_cond_struct_member(struct uftrace_filter *filter, struct uftr
 		}
 
 		for (int j = 0; j < st->num_members; j++) {
-			if (filter->trigger.cond.field_name &&
-			    strcmp(st->members[j].name, filter->trigger.cond.field_name) == 0) {
-				filter->trigger.cond.offset = st->members[j].offset;
-				filter->trigger.cond.size = st->members[j].size;
+			if (cond->field_name &&
+			    strcmp(st->members[j].name, cond->field_name) == 0) {
+				cond->offset = st->members[j].offset;
+				cond->size = st->members[j].size;
 				ret = 0;
 				break;
 			}
@@ -545,7 +554,8 @@ static int update_filter(struct rb_root *root, struct uftrace_filter *filter,
 	new->trigger.read = 0;
 	INIT_LIST_HEAD(&new->args);
 	new->trigger.pargs = &new->args;
-	new->trigger.cond.is_ptr = false;
+	new->trigger.conds = NULL;
+	new->trigger.nr_conds = 0;
 
 	update_trigger(new, tr, exact_match);
 	if (auto_arg)
@@ -554,14 +564,18 @@ static int update_filter(struct rb_root *root, struct uftrace_filter *filter,
 		update_trigger(new, &auto_ret->trigger, exact_match);
 	tr->flags = orig_flags;
 
-	if (new->trigger.cond.is_ptr) {
-		int rc = resolve_cond_struct_member(new, dinfo, map, setting);
+	for (size_t cond_idx = 0; cond_idx < new->trigger.nr_conds; cond_idx++) {
+		if (new->trigger.conds[cond_idx].is_ptr) {
+			int rc = resolve_cond_struct_member(new, &new->trigger.conds[cond_idx],
+							    dinfo, map, setting);
 
-		new->trigger.cond.field_name = NULL;
+			new->trigger.conds[cond_idx].field_name = NULL;
 
-		if (rc < 0) {
-			free(new);
-			return 0;
+			if (rc < 0) {
+				free(new->trigger.conds);
+				free(new);
+				return 0;
+			}
 		}
 	}
 
@@ -944,6 +958,7 @@ static int parse_cond_action(char *action, struct uftrace_trigger *tr,
 	int op = -1;
 	int ret = -1;
 	struct uftrace_arg_spec *arg;
+	struct uftrace_filter_cond cond = { 0 };
 
 	pos = expr;
 	while ((pos = strpbrk(pos, "!<=>&")) != NULL) {
@@ -982,14 +997,14 @@ static int parse_cond_action(char *action, struct uftrace_trigger *tr,
 		goto out;
 	}
 	if (arg->field_depth > 0) {
-		tr->cond.field_name = xstrdup(arg->field_steps[0].name);
-		tr->cond.is_ptr = true;
+		cond.field_name = xstrdup(arg->field_steps[0].name);
+		cond.is_ptr = true;
 	}
 
-	tr->cond.type = convert_arg_condtype(arg);
-	tr->cond.size = arg->size;
+	cond.type = convert_arg_condtype(arg);
+	cond.size = arg->size;
 
-	if (tr->cond.type == COND_ARG_TYPE_NONE || tr->cond.type == COND_ARG_TYPE_FLOAT) {
+	if (cond.type == COND_ARG_TYPE_NONE || cond.type == COND_ARG_TYPE_FLOAT) {
 		/* floating-point is not supported as it can clobber FP registers */
 		pr_use("not supported argument format: %d\n", arg->fmt);
 		goto out;
@@ -1013,26 +1028,32 @@ static int parse_cond_action(char *action, struct uftrace_trigger *tr,
 	while (*pos == ' ')
 		pos++;
 
-	switch (tr->cond.type) {
+	switch (cond.type) {
 	case COND_ARG_TYPE_SINT:
-		tr->cond.val.i = strtol(pos, NULL, 0);
+		cond.val.i = strtol(pos, NULL, 0);
 		break;
 	case COND_ARG_TYPE_UINT:
-		tr->cond.val.u = strtoul(pos, NULL, 0);
+		cond.val.u = strtoul(pos, NULL, 0);
 		break;
 	default:
 		/* should not reach here */
 		break;
 	}
 
-	tr->cond.idx = arg->idx;
-	tr->cond.op = op;
+	cond.idx = arg->idx;
+	cond.op = op;
 	tr->flags |= TRIGGER_FL_CONDITION;
+
+	tr->conds = xrealloc(tr->conds, (tr->nr_conds + 1) * sizeof(*tr->conds));
+	tr->conds[tr->nr_conds] = cond;
+	tr->nr_conds++;
+	cond.field_name = NULL;
 
 	ret = 0;
 
 out:
 	free_arg_spec(arg);
+	free(cond.field_name);
 	return ret;
 }
 
@@ -1437,8 +1458,9 @@ static void setup_trigger(const char *filter_str, struct uftrace_sym_info *sinfo
 next:
 		free_filter_pattern(&patt);
 		free(module);
-		free(tr.cond.field_name);
-		tr.cond.field_name = NULL;
+		for (size_t cond_idx = 0; cond_idx < tr.nr_conds; cond_idx++)
+			free(tr.conds[cond_idx].field_name);
+		free(tr.conds);
 
 		while (!list_empty(&args)) {
 			arg = list_first_entry(&args, typeof(*arg), list);
@@ -1583,8 +1605,14 @@ static struct uftrace_filter *deep_copy_filter(struct uftrace_filter *old)
 		list_add_tail(&arg_copy->list, &new->args);
 	}
 
-	/* deep copy nested trigger.pargs */
+	/* deep copy nested trigger data */
 	new->trigger.pargs = &new->args;
+	if (old->trigger.nr_conds) {
+		size_t size = old->trigger.nr_conds * sizeof(*old->trigger.conds);
+
+		new->trigger.conds = xmalloc(size);
+		memcpy(new->trigger.conds, old->trigger.conds, size);
+	}
 
 	return new;
 }
@@ -1654,6 +1682,7 @@ void uftrace_cleanup_filter(struct uftrace_triggers_info *filters)
 			list_del(&arg->list);
 			free_arg_spec(arg);
 		}
+		free(filter->trigger.conds);
 		free(filter);
 	}
 }
@@ -2878,8 +2907,7 @@ TEST_CASE(filter_setup_cond)
 {
 	struct uftrace_trigger tr = {};
 	struct uftrace_filter_setting setting = {};
-	char val_str_ok1[] = "foo@filter,if:arg1==1234";
-	char val_str_ok2[] = "foo@filter,if:arg2 !=100";
+	char val_str_ok1[] = "foo@filter,if:arg1==1234,if:arg2 !=100";
 	char val_str_ok3[] = "foo@filter,if:arg3>= 5678";
 	char val_str_ok4[] = "foo@filter,if:arg4 < 9876";
 	char val_str_ok5[] = "foo@filter,if:arg5/i32 == 9876";
@@ -2895,45 +2923,49 @@ TEST_CASE(filter_setup_cond)
 
 	pr_dbg("check filter cond: %s\n", val_str_ok1);
 	TEST_EQ(setup_trigger_action(val_str_ok1, &tr, NULL, 0, &setting), 0);
-	TEST_EQ(tr.cond.idx, 1);
-	TEST_EQ(tr.cond.op, FILTER_OP_EQ);
-	TEST_EQ(tr.cond.val.i, 1234);
-
-	pr_dbg("check filter cond: %s\n", val_str_ok2);
-	TEST_EQ(setup_trigger_action(val_str_ok2, &tr, NULL, 0, &setting), 0);
-	TEST_EQ(tr.cond.idx, 2);
-	TEST_EQ(tr.cond.op, FILTER_OP_NE);
-	TEST_EQ(tr.cond.val.i, 100);
+	TEST_EQ(tr.nr_conds, 2);
+	TEST_EQ(tr.conds[0].idx, 1);
+	TEST_EQ(tr.conds[0].op, FILTER_OP_EQ);
+	TEST_EQ(tr.conds[0].val.i, 1234);
+	TEST_EQ(tr.conds[1].idx, 2);
+	TEST_EQ(tr.conds[1].op, FILTER_OP_NE);
+	TEST_EQ(tr.conds[1].val.i, 100);
 
 	pr_dbg("check filter cond: %s\n", val_str_ok3);
 	TEST_EQ(setup_trigger_action(val_str_ok3, &tr, NULL, 0, &setting), 0);
-	TEST_EQ(tr.cond.idx, 3);
-	TEST_EQ(tr.cond.op, FILTER_OP_GE);
-	TEST_EQ(tr.cond.val.i, 5678);
+	TEST_EQ(tr.nr_conds, 3);
+	TEST_EQ(tr.conds[2].idx, 3);
+	TEST_EQ(tr.conds[2].op, FILTER_OP_GE);
+	TEST_EQ(tr.conds[2].val.i, 5678);
 
 	pr_dbg("check filter cond: %s\n", val_str_ok4);
 	TEST_EQ(setup_trigger_action(val_str_ok4, &tr, NULL, 0, &setting), 0);
-	TEST_EQ(tr.cond.idx, 4);
-	TEST_EQ(tr.cond.op, FILTER_OP_LT);
-	TEST_EQ(tr.cond.val.i, 9876);
+	TEST_EQ(tr.nr_conds, 4);
+	TEST_EQ(tr.conds[3].idx, 4);
+	TEST_EQ(tr.conds[3].op, FILTER_OP_LT);
+	TEST_EQ(tr.conds[3].val.i, 9876);
 
 	pr_dbg("check filter cond: %s\n", val_str_ok5);
 	TEST_EQ(setup_trigger_action(val_str_ok5, &tr, NULL, 0, &setting), 0);
-	TEST_EQ(tr.cond.idx, 5);
-	TEST_EQ(tr.cond.op, FILTER_OP_EQ);
-	TEST_EQ(tr.cond.val.i, 9876);
+	TEST_EQ(tr.nr_conds, 5);
+	TEST_EQ(tr.conds[4].idx, 5);
+	TEST_EQ(tr.conds[4].op, FILTER_OP_EQ);
+	TEST_EQ(tr.conds[4].val.i, 9876);
 
 	pr_dbg("check filter cond: %s\n", val_str_ok6);
 	TEST_EQ(setup_trigger_action(val_str_ok6, &tr, NULL, 0, &setting), 0);
-	TEST_EQ(tr.cond.idx, 6);
-	TEST_EQ(tr.cond.op, FILTER_OP_NE);
-	TEST_EQ(tr.cond.val.u, 0x1234);
+	TEST_EQ(tr.nr_conds, 6);
+	TEST_EQ(tr.conds[5].idx, 6);
+	TEST_EQ(tr.conds[5].op, FILTER_OP_NE);
+	TEST_EQ(tr.conds[5].val.u, 0x1234);
 
 	pr_dbg("check filter cond: %s\n", val_str_ok7);
 	TEST_EQ(setup_trigger_action(val_str_ok7, &tr, NULL, 0, &setting), 0);
-	TEST_EQ(tr.cond.idx, 1);
-	TEST_EQ(tr.cond.op, FILTER_OP_AND);
-	TEST_EQ(tr.cond.val.u, 0x1000);
+	TEST_EQ(tr.nr_conds, 7);
+	TEST_EQ(tr.conds[6].idx, 1);
+	TEST_EQ(tr.conds[6].op, FILTER_OP_AND);
+	TEST_EQ(tr.conds[6].val.u, 0x1000);
+	free(tr.conds);
 
 	memset(&tr, 0, sizeof(tr));
 	/* suppress usage error messages */
@@ -2949,10 +2981,11 @@ TEST_CASE(filter_setup_cond)
 	if (!debug)
 		outfp = saved_fp;
 
-	/* failed function should not set any fields */
-	TEST_EQ(tr.cond.idx, 0);
-	TEST_EQ(tr.cond.op, 0);
-	TEST_EQ(tr.cond.val.i, 0);
+	fclose(null_fp);
+
+	/* failed actions should not append any conditions */
+	TEST_EQ(tr.nr_conds, 0);
+	TEST_EQ(tr.conds, NULL);
 
 	return TEST_OK;
 }

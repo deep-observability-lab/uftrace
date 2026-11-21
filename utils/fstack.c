@@ -649,17 +649,26 @@ int fstack_entry(struct uftrace_task_reader *task, struct uftrace_record *rstack
 			struct list_head *arg_list = task->args.args;
 			struct uftrace_arg_spec *spec;
 			void *data = task->args.data;
-			union uftrace_arg_val val = { .v = {} };
-			bool found = false;
+			bool failed = false;
 
 			list_for_each_entry(spec, arg_list, list) {
 				int size = spec->size;
 
-				if (spec->idx == tr->cond.idx) {
+				for (size_t i = 0; i < tr->nr_conds; i++) {
+					struct uftrace_filter_cond *cond = &tr->conds[i];
+					union uftrace_arg_val val = { .v = {} };
+
+					if (spec->idx != cond->idx)
+						continue;
+
 					memcpy(&val.v, data, spec->size);
-					found = true;
-					break;
+					if (!uftrace_eval_cond(cond, &val)) {
+						failed = true;
+						break;
+					}
 				}
+				if (failed)
+					break;
 
 				/* skip unrelated arguments */
 				if (spec->fmt == ARG_FMT_STR || spec->fmt == ARG_FMT_STD_STRING) {
@@ -672,7 +681,7 @@ int fstack_entry(struct uftrace_task_reader *task, struct uftrace_record *rstack
 				data += ALIGN(size, 4);
 			}
 
-			if (found && !uftrace_eval_cond(&tr->cond, &val))
+			if (failed)
 				tr->flags &= ~TRIGGER_FL_FILTER;
 		}
 	}
