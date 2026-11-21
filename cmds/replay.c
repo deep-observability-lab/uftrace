@@ -1,6 +1,5 @@
 #include <errno.h>
 #include <inttypes.h>
-#include <math.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -427,164 +426,92 @@ static void print_escaped_char(char **args, size_t *len, const char c)
 		print_char(args, len, c);
 }
 
-static int hexval(int c)
+static void print_struct_member(char **args, size_t *len, struct resolved_member *m, void *m_addr,
+				bool needs_json)
 {
-	if (c >= '0' && c <= '9')
-		return c - '0';
-	if (c >= 'a' && c <= 'f')
-		return c - 'a' + 10;
-	if (c >= 'A' && c <= 'F')
-		return c - 'A' + 10;
-	return -1;
-}
+	size_t m_sz = (size_t)m->size;
 
-static bool parse_F4(const char **ps, float *out)
-{
-	const char *s = *ps;
-	uint32_t bits = 0;
-	int i;
-	int v;
+	if (m->is_ptr) {
+		void *pval = NULL;
 
-	if (strncmp(s, "[#F4:", 5) != 0)
-		return false;
-	s += 5;
-	for (i = 0; i < 8; i++) {
-		v = hexval(s[i]);
-		if (v < 0)
-			return false;
-		bits = (bits << 4) | (uint32_t)v;
+		memcpy(&pval, m_addr, m_sz <= sizeof(pval) ? m_sz : sizeof(pval));
+		if (pval)
+			print_args(args, len, "%p", pval);
+		else
+			print_args(args, len, "NULL");
+		return;
 	}
-	s += 8;
-	if (*s != ']')
-		return false;
-	s++;
-	memcpy(out, &bits, 4);
-	*ps = s;
-	return true;
-}
 
-static bool parse_F8(const char **ps, double *out)
-{
-	const char *s = *ps;
-	uint64_t bits = 0;
-	int i;
-	int v;
+	switch (m->format) {
+	case 'c': {
+		char c = *(char *)m_addr;
 
-	if (strncmp(s, "[#F8:", 5) != 0)
-		return false;
-	s += 5;
-	for (i = 0; i < 16; i++) {
-		v = hexval(s[i]);
-		if (v < 0)
-			return false;
-		bits = (bits << 4) | (uint64_t)v;
+		if (c >= 32 && c <= 126)
+			print_args(args, len, "'%c'", c);
+		else
+			print_args(args, len, "'\\%03o'", (unsigned char)c);
+		break;
 	}
-	s += 16;
-	if (*s != ']')
-		return false;
-	s++;
-	memcpy(out, &bits, 8);
-	*ps = s;
-	return true;
-}
+	case 'i': {
+		int64_t val = 0;
 
-static bool parse_FL(const char **ps, long double *out)
-{
-	const char *s = *ps;
-	unsigned len = 0;
-	unsigned char buf[32];
-	unsigned copy;
-
-	if (strncmp(s, "[#FL:", 5) != 0)
-		return false;
-	s += 5;
-
-	// parse length
-	if (!isdigit((unsigned char)*s))
-		return false;
-	while (isdigit((unsigned char)*s)) {
-		len = len * 10 + (unsigned)(*s - '0');
-		s++;
+		if (m_sz == 1)
+			val = *(int8_t *)m_addr;
+		else if (m_sz == 2)
+			val = *(int16_t *)m_addr;
+		else if (m_sz == 4)
+			val = *(int32_t *)m_addr;
+		else if (m_sz == 8)
+			val = *(int64_t *)m_addr;
+		print_args(args, len, "%" PRId64, val);
+		break;
 	}
-	if (*s != ':')
-		return false;
-	s++;
+	case 'u': {
+		uint64_t val = 0;
 
-	if (len > sizeof buf)
-		return false; // sanity cap
-	for (unsigned i = 0; i < len; i++) {
-		int hi = hexval(s[0]), lo = hexval(s[1]);
-		if (hi < 0 || lo < 0)
-			return false;
-		buf[i] = (unsigned char)((hi << 4) | lo);
-		s += 2;
+		if (m_sz == 1)
+			val = *(uint8_t *)m_addr;
+		else if (m_sz == 2)
+			val = *(uint16_t *)m_addr;
+		else if (m_sz == 4)
+			val = *(uint32_t *)m_addr;
+		else if (m_sz == 8)
+			val = *(uint64_t *)m_addr;
+		print_args(args, len, "%" PRIu64, val);
+		break;
 	}
-	if (*s != ']')
-		return false;
-	s++;
-
-	// memcpy what fits into local long double storage
-	copy = len < sizeof(*out) ? len : (unsigned)sizeof(*out);
-	memset(out, 0, sizeof(*out));
-	memcpy(out, buf, copy); // memory-order round trip on same ABI
-	*ps = s;
-	return true;
-}
-
-char *convert_fp_markers(const char *in, int precision)
-{
-	size_t cap, pos = 0;
-	char *out;
-	const char *p;
-
-	if (!in)
-		return NULL;
-
-	cap = strlen(in) + 1;
-	out = xmalloc(cap);
-	p = in;
-
-	while (*p) {
-		if (p[0] == '[' && p[1] == '#' && p[2] == 'F') {
-			const char *save = p;
-			char tmp[128];
-			int n = -1;
-
+	case 'f': {
+		if (m_sz == 4) {
 			float f;
+
+			memcpy(&f, m_addr, 4);
+			print_args(args, len, "%g", (double)f);
+		}
+		else if (m_sz == 8) {
 			double d;
-			long double ld;
-			if (parse_F4(&p, &f)) {
-				n = snprintf(tmp, sizeof tmp, "%.*f", precision, (double)f);
-			}
-			else if (parse_F8(&p, &d)) {
-				n = snprintf(tmp, sizeof tmp, "%.*f", precision, d);
-			}
-			else if (parse_FL(&p, &ld)) {
-				n = snprintf(tmp, sizeof tmp, "%.*Lf", precision, ld);
-			}
 
-			if (n >= 0) {
-				if (pos + (size_t)n + 1 > cap) {
-					cap = (pos + (size_t)n + 1) * 2;
-					out = xrealloc(out, cap);
-				}
-				memcpy(out + pos, tmp, (size_t)n);
-				pos += (size_t)n;
-				continue;
-			}
-
-			// not a valid marker; fall through to copy '['
-			p = save;
+			memcpy(&d, m_addr, 8);
+			print_args(args, len, "%g", d);
 		}
-
-		if (pos + 2 > cap) {
-			cap = cap * 2 + 16;
-			out = xrealloc(out, cap);
+		else {
+			print_args(args, len, "<float%zu>", m_sz);
 		}
-		out[pos++] = *p++;
+		break;
 	}
-	out[pos] = '\0';
-	return out;
+	case 'p': {
+		void *pval = NULL;
+
+		memcpy(&pval, m_addr, m_sz <= sizeof(pval) ? m_sz : sizeof(pval));
+		if (pval)
+			print_args(args, len, "%p", pval);
+		else
+			print_args(args, len, "NULL");
+		break;
+	}
+	default:
+		print_args(args, len, "<unknown %c>", m->format);
+		break;
+	}
 }
 
 void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len,
@@ -854,56 +781,53 @@ void get_argspec_string(struct uftrace_task_reader *task, char *args, size_t len
 			free(estr);
 		}
 		else if (spec->fmt == ARG_FMT_STRUCT) {
-			if (spec->is_ptr && spec->resolved_struct) {
-				unsigned short slen;
-				memcpy(&slen, data, 2);
-				str = xmalloc(slen + 1);
-				memcpy(str, data + 2, slen);
-				str[slen] = '\0';
-				str = convert_fp_markers(str, 7);
-				{
-					char *p = str;
+			struct uftrace_session_link *sessions = &task->h->sessions;
+			struct uftrace_session *s;
+			struct uftrace_mmap *map;
+			struct uftrace_dbg_info *dinfo = NULL;
+			struct resolved_struct_type *st = NULL;
 
-					print_args(&args, &len, "%s\"", color_string);
+			s = find_task_session(sessions, task->t, task->rstack->time);
+			if (s) {
+				map = find_map(&s->sym_info, task->rstack->addr);
+				if (map && map->mod)
+					dinfo = &map->mod->dinfo;
+			}
 
-					while (*p) {
-						char c = *p++;
-						if (c & 0x80) {
-							break;
-						}
-					}
-					/*
-					* if value of character is over than 128(0x80),
-					* then it will be UTF-8 string
-					*/
-					if (*p) {
-						print_args(&args, &len, "%.*s", slen, str);
+			if (dinfo && spec->type_name)
+				st = find_struct_type(&dinfo->structs, spec->type_name);
+
+			if (spec->is_ptr)
+				print_args(&args, &len, "&");
+
+			if (spec->type_name && strcmp(spec->type_name, "<lambda"))
+				print_args(&args, &len, "%s%s%s", color_struct, spec->type_name,
+					   color_reset);
+
+			if (st && st->num_members > 0 && spec->size > 0) {
+				int j;
+
+				print_args(&args, &len, "{");
+				for (j = 0; j < st->num_members; j++) {
+					struct resolved_member *m = &st->members[j];
+
+					if (j > 0)
+						print_args(&args, &len, ", ");
+
+					print_args(&args, &len, ".%s = ", m->name ?: "<anon>");
+					if (m->offset + m->size <= (int)spec->size) {
+						void *m_addr = (char *)data + m->offset;
+
+						print_struct_member(&args, &len, m, m_addr,
+								    needs_json);
 					}
 					else {
-						p = str;
-						while (*p) {
-							char c = *p++;
-							print_escaped_char(&args, &len, c);
-						}
+						print_args(&args, &len, "<out-of-bounds>");
 					}
-					print_args(&args, &len, "\"%s", color_reset);
 				}
-
-				free(str);
-				size = slen + 2;
-				// free(spec->resolved_struct);
+				print_args(&args, &len, "}");
 			}
 			else {
-				if (spec->type_name && spec->is_ptr == 0) {
-					/*
-					* gcc puts "<lambda" to anonymous lambda
-					* but let's ignore to make it same as clang.
-					*/
-					if (strcmp(spec->type_name, "<lambda")) {
-						print_args(&args, &len, "%s%s%s", color_struct,
-							   spec->type_name, color_reset);
-					}
-				}
 				if (spec->size)
 					print_args(&args, &len, "{...}");
 				else

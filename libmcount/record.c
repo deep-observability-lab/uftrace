@@ -410,213 +410,6 @@ void finish_mem_region(struct mcount_mem_regions *regions)
 	}
 }
 
-// append helper (safe, truncation-aware)
-static size_t buf_append(void *out_buf, size_t out_size, size_t pos, const char *fmt, ...)
-{
-	char *dst;
-	va_list ap;
-	int n;
-
-	if (!out_buf || out_size == 0 || pos >= out_size)
-		return pos;
-
-	dst = (char *)out_buf;
-	va_start(ap, fmt);
-	n = vsnprintf(dst + pos, out_size - pos, fmt, ap);
-	va_end(ap);
-
-	if (n < 0)
-		return pos; // ignore on error
-	if ((size_t)n >= (out_size - pos)) // truncated
-		return out_size; // clamp to "full"
-	return pos + (size_t)n;
-}
-
-static inline void *load_pointee(const void *field_addr, size_t ptr_size)
-{
-	uintptr_t bits = 0;
-	if (ptr_size == 8) {
-		mcount_memcpy4(&bits, field_addr, 8);
-	}
-	else if (ptr_size == 4)
-		mcount_memcpy4(&bits, field_addr, 4);
-	else
-		memcpy(&bits, field_addr, ptr_size < sizeof bits ? ptr_size : sizeof bits);
-	return (void *)(uintptr_t)bits;
-}
-
-/*
- * Writes a textual dump of *ptr_to_struct into out_buf (void*).
- * Returns total bytes "intended" to write, clamped at out_size on truncation.
- */
-unsigned add_resolved_struct_dump(struct resolved_struct_type *resolved_struct, void *ptr_to_struct,
-				  void *out_buf, size_t out_size)
-{
-	union {
-		long i;
-		void *p;
-		float f;
-		double d;
-		long long ll;
-		long double D;
-		unsigned char v[16]; // to hold the raw bytes
-	} val;
-	unsigned pos = 0;
-
-	memset(val.v, 0, sizeof(val));
-	pos = buf_append(out_buf, out_size, pos, "%s {\n",
-			 resolved_struct && resolved_struct->type_name ?
-				 resolved_struct->type_name :
-				 "<anon>");
-
-	if (!resolved_struct || !ptr_to_struct) {
-		pos = buf_append(out_buf, out_size, pos, "  (null)\n}\n");
-		return pos;
-	}
-
-	for (int i = 0; i < resolved_struct->num_members; i++) {
-		struct resolved_member *m = &resolved_struct->members[i];
-		void *member_addr = (char *)ptr_to_struct + m->offset;
-
-		pos = buf_append(out_buf, out_size, pos, "  %s : ", m->name ? m->name : "<anon>");
-		if (m->is_ptr == 1 && m->format != 'c') {
-			// might occur problems with array or pointer to struct/union/class
-			void *pointee =
-				load_pointee(member_addr, /* pointer width */ sizeof(void *));
-			member_addr = pointee;
-		}
-
-		switch (m->format) {
-		case 'f': {
-			switch (m->size) {
-			case 4: { // float
-				uint32_t bits = 0;
-				mcount_memcpy4(&bits, member_addr,
-					       4); // safe, no aliasing/alignment issues
-				pos = buf_append(out_buf, out_size, pos, "[#F4:%08" PRIx32 "]",
-						 bits);
-				break;
-			}
-			case 8: { // double
-				uint64_t bits = 0;
-				mcount_memcpy4(&bits, member_addr, 8);
-				pos = buf_append(out_buf, out_size, pos, "[#F8:%016" PRIx64 "]",
-						 bits);
-				break;
-			}
-			case 10: { // x87 80-bit (10 bytes in memory, often padded externally)
-				unsigned char raw[10];
-				mcount_memcpy4(raw, member_addr, sizeof raw);
-				pos = buf_append(out_buf, out_size, pos,
-						 "[#FL:%u:", (unsigned)sizeof raw);
-				for (size_t i = 0; i < sizeof raw; i++)
-					pos = buf_append(out_buf, out_size, pos, "%02x",
-							 raw[i]); // memory order bytes
-				pos = buf_append(out_buf, out_size, pos, "]");
-				break;
-			}
-			case 16: { // some platforms use 128-bit long double
-				unsigned char raw[16];
-				mcount_memcpy4(raw, member_addr, sizeof raw);
-				pos = buf_append(out_buf, out_size, pos,
-						 "[#FL:%u:", (unsigned)sizeof raw);
-				for (size_t i = 0; i < sizeof raw; i++)
-					pos = buf_append(out_buf, out_size, pos, "%02x", raw[i]);
-				pos = buf_append(out_buf, out_size, pos, "]");
-				break;
-			}
-			default:
-				pos = buf_append(out_buf, out_size, pos, "<invalid float size %zu>",
-						 (size_t)m->size);
-				break;
-			}
-			break;
-		}
-		case 'i': {
-			if (m->size == 8) {
-				int64_t v;
-				memcpy(&v, member_addr, sizeof v);
-				pos = buf_append(out_buf, out_size, pos, "%" PRId64, v);
-			}
-			else if (m->size == 4) {
-				int32_t v;
-				memcpy(&v, member_addr, sizeof v);
-				pos = buf_append(out_buf, out_size, pos, "%" PRId32, v);
-			}
-			else if (m->size == 2) {
-				int16_t v;
-				memcpy(&v, member_addr, sizeof v);
-				pos = buf_append(out_buf, out_size, pos, "%" PRId16, v);
-			}
-			else if (m->size == 1) {
-				int8_t v;
-				memcpy(&v, member_addr, sizeof v);
-				pos = buf_append(out_buf, out_size, pos, "%" PRId8, v);
-			}
-			else {
-				pos = buf_append(out_buf, out_size, pos,
-						 "<unsupported int size %zu>", m->size);
-			}
-			break;
-		}
-
-		case 'p': {
-			void *pval;
-			memcpy(&pval, member_addr, sizeof pval);
-			pos = buf_append(out_buf, out_size, pos, "%p", pval);
-			break;
-		}
-		case 's':
-			break;
-		case 'c': {
-			// If it's a pointer to char (m->is_ptr == 1), resolve it as a string
-			if (m->is_ptr == 1) {
-				char *str = NULL;
-				int i = 0;
-
-				// Read the address at member_addr + m->offset (assuming it's a pointer)
-				void *address_of_field = NULL;
-				memcpy(&address_of_field, member_addr,
-				       m->size); // Read the pointer (address)
-
-				memcpy(&str, member_addr,
-				       sizeof(str)); // Read the char* (pointer to char)
-				// Now resolve the string, character by character, until we hit a null terminator
-				while (str && str[i] != '\0') {
-					// We use buf_append to append each character to the buffer
-					pos = buf_append(out_buf, out_size, pos, "%c", str[i]);
-					i++;
-				}
-			}
-			else {
-				// If it's not a pointer, resolve just one character (single byte)
-				char v;
-				memcpy(&v, member_addr, sizeof(v)); // Read the single character
-				pos = buf_append(out_buf, out_size, pos, "%c", v);
-			}
-			break;
-		}
-		default:
-			pos = buf_append(out_buf, out_size, pos, "<unknown format '%c'>",
-					 m->format);
-			break;
-		}
-
-		// Recursively dump nested structs inline
-		if (m->nested_type && member_addr) {
-			pos = buf_append(out_buf, out_size, pos, " ");
-			// Continue writing into the SAME buffer
-			pos = add_resolved_struct_dump(m->nested_type, member_addr, out_buf,
-						       out_size);
-		}
-
-		pos = buf_append(out_buf, out_size, pos, "\n");
-	}
-	pos = buf_append(out_buf, out_size, pos, "}\0");
-
-	return pos;
-}
-
 static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 			       struct mcount_arg_context *ctx)
 {
@@ -628,12 +421,10 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 
 	ptr = argbuf + sizeof(total_size);
 	list_for_each_entry(spec, args_spec, list) {
-		char *dst;
-
 		if (is_retval != (spec->idx == RETVAL_IDX))
 			continue;
 
-		if (spec->fmt == ARG_FMT_STRUCT) {
+		if (spec->fmt == ARG_FMT_STRUCT && !spec->is_ptr) {
 			if (total_size + spec->size > max_size) {
 				/* just to make it fail */
 				total_size += spec->size;
@@ -722,33 +513,14 @@ static unsigned save_to_argbuf(void *argbuf, struct list_head *args_spec,
 		}
 		else if (spec->fmt == ARG_FMT_STRUCT) {
 			if (spec->is_ptr) {
-				unsigned short len = 0;
-				size_t avail = (max_size > 2) ? max_size - 2 : 0;
-				size_t written;
-				dst = ptr + 2;
-				if (spec->resolved_struct && avail) {
-					add_resolved_struct_dump(
-						spec->resolved_struct, ctx->val.p, dst,
-						avail); /* truncation handled via strnlen below */
-					written = strnlen(
-						dst,
-						avail); // bytes actually in buffer excluding the NUL
-					len = (uint16_t)written;
-					// memcpy(ptr, &len, sizeof(len));        // store length safely
-					*(unsigned short *)ptr = len;
+				void *ptr_val = ctx->val.p;
 
-					size = ALIGN(written + 2, 4);
-					spec->size = size;
-				}
-				else {
-					uint16_t zero = 0;
-					memcpy(ptr, &zero, sizeof(zero));
-					size = ALIGN(2, 4);
-				}
+				if (ptr_val && check_mem_region(ctx, (unsigned long)ptr_val))
+					mcount_memcpy4(ptr, ptr_val, ALIGN(spec->size, 4));
+				else
+					mcount_memset4(ptr, 0, ALIGN(spec->size, 4));
 			}
-			else {
-				size = ALIGN(spec->size, 4);
-			}
+			size = ALIGN(spec->size, 4);
 		}
 		else {
 			size = ALIGN(spec->size, 4);
@@ -1273,7 +1045,7 @@ static int record_ret_stack(struct mcount_thread_data *mtdp, enum uftrace_record
 	mrstack->flags |= MCOUNT_FL_WRITTEN;
 
 	if (argbuf) {
-		unsigned int *ptr = (void *)curr_buf->data + curr_buf->size;
+		void *ptr = (void *)curr_buf->data + curr_buf->size;
 
 		size -= sizeof(*frstack);
 

@@ -239,7 +239,7 @@ static void mcount_get_struct_arg(struct mcount_arg_context *ctx, struct uftrace
 
 void mcount_arch_get_arg(struct mcount_arg_context *ctx, struct uftrace_arg_spec *spec)
 {
-	if (spec->fmt == ARG_FMT_STRUCT) {
+	if (spec->fmt == ARG_FMT_STRUCT && !spec->is_ptr) {
 		mcount_get_struct_arg(ctx, spec);
 		return;
 	}

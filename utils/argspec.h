@@ -40,6 +40,14 @@ enum uftrace_arg_format {
  */
 #define RETVAL_IDX 0
 
+struct field_access_step {
+	char *name;
+	int offset;
+	bool is_pointer;
+	int size;
+	enum uftrace_arg_format fmt;
+};
+
 struct uftrace_arg_spec {
 	struct list_head list;
 	int idx;
@@ -54,9 +62,10 @@ struct uftrace_arg_spec {
 	};
 	char *type_name;
 	short struct_regs[4];
-	// adding address of struct;
 	int is_ptr;
-	struct resolved_struct_type *resolved_struct;
+	// additional fields for struct's field filtering
+	int field_depth;
+	struct field_access_step *field_steps;
 };
 
 struct uftrace_filter_setting;
