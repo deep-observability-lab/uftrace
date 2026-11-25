@@ -128,6 +128,8 @@ static void print_trigger(struct uftrace_trigger *tr)
 		pr_dbg("\ttrigger: caller filter\n");
 	if (tr->flags & TRIGGER_FL_SIZE_FILTER)
 		pr_dbg("\ttrigger: size filter %u\n", tr->size);
+	if (tr->flags & TRIGGER_FL_SAMPLE)
+		pr_dbg("\ttrigger: sample filter %" PRIu64 "\n", tr->sample_rate);
 
 	if (tr->flags & TRIGGER_FL_READ) {
 		char buf[1024];
@@ -331,6 +333,8 @@ void update_trigger(struct uftrace_filter *filter, struct uftrace_trigger *tr, b
 		filter->trigger.read |= tr->read;
 	if (tr->flags & TRIGGER_FL_SIZE_FILTER)
 		filter->trigger.size = tr->size;
+	if (tr->flags & TRIGGER_FL_SAMPLE)
+		filter->trigger.sample_rate = tr->sample_rate;
 }
 
 bool uftrace_eval_cond(struct uftrace_filter_cond *cond, union uftrace_arg_val *val)
@@ -556,6 +560,7 @@ static int update_filter(struct rb_root *root, struct uftrace_filter *filter,
 	new->trigger.pargs = &new->args;
 	new->trigger.conds = NULL;
 	new->trigger.nr_conds = 0;
+	new->sample_count = 0;
 
 	update_trigger(new, tr, exact_match);
 	if (auto_arg)
@@ -773,6 +778,19 @@ static int parse_depth_action(char *action, struct uftrace_trigger *tr,
 
 	if (tr->depth < 0 || tr->depth > MCOUNT_RSTACK_MAX) {
 		pr_use("skipping invalid trigger depth: %d\n", tr->depth);
+		return -1;
+	}
+	return 0;
+}
+
+static int parse_sample_action(char *action, struct uftrace_trigger *tr,
+			       struct uftrace_filter_setting *setting)
+{
+	tr->flags |= TRIGGER_FL_SAMPLE;
+	tr->sample_rate = strtoul(action + 7, NULL, 10);
+
+	if (tr->sample_rate == 0) {
+		pr_use("skipping invalid trigger sample: %d\n", tr->sample_rate);
 		return -1;
 	}
 	return 0;
@@ -1111,6 +1129,8 @@ static int parse_clear_action(char *action, struct uftrace_trigger *tr,
 			tr->clear_flags |= TRIGGER_FL_RECOVER;
 		else if (!strcmp(pos, "if"))
 			tr->clear_flags |= TRIGGER_FL_CONDITION;
+		else if (!strcmp(pos, "sample"))
+			tr->clear_flags |= TRIGGER_FL_SAMPLE;
 		else
 			pr_use("skipping invalid clear argument: %s\n", pos);
 	}
@@ -1155,6 +1175,11 @@ static const struct trigger_action_parser actions[] = {
 	{
 		"depth=",
 		parse_depth_action,
+		TRIGGER_FL_FILTER,
+	},
+	{
+		"sample=",
+		parse_sample_action,
 		TRIGGER_FL_FILTER,
 	},
 	{

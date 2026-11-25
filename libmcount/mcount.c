@@ -1013,6 +1013,7 @@ enum filter_result mcount_entry_filter_check(struct mcount_thread_data *mtdp, un
 					     struct uftrace_trigger *tr, struct mcount_regs *regs)
 {
 	int max_depth = mtdp->filter.max_depth;
+	struct uftrace_filter *filter;
 
 	if (max_depth == FILTER_NO_MAX_DEPTH)
 		max_depth = mcount_depth;
@@ -1027,7 +1028,7 @@ enum filter_result mcount_entry_filter_check(struct mcount_thread_data *mtdp, un
 	if (mtdp->filter.out_count > 0)
 		return FILTER_OUT;
 
-	uftrace_match_filter(child, mcount_triggers, tr);
+	filter = uftrace_match_filter(child, mcount_triggers, tr);
 
 	pr_dbg3(" tr->flags: %x, filter mode: %d, count: %d/%d, depth: %d\n", tr->flags, tr->fmode,
 		mtdp->filter.in_count, mtdp->filter.out_count, mtdp->filter.depth);
@@ -1064,6 +1065,14 @@ enum filter_result mcount_entry_filter_check(struct mcount_thread_data *mtdp, un
 				tr->flags = 0;
 				break;
 			}
+		}
+	}
+
+	if ((tr->flags & TRIGGER_FL_SAMPLE) && filter) {
+		uint64_t count = __atomic_fetch_add(&filter->sample_count, 1, __ATOMIC_RELAXED);
+
+		if (count % tr->sample_rate != 0) {
+			tr->flags = 0;
 		}
 	}
 

@@ -40,6 +40,7 @@ enum trigger_flag {
 	TRIGGER_FL_SIZE_FILTER = (1U << 19),
 	TRIGGER_FL_CONDITION = (1U << 20),
 	TRIGGER_FL_CALLSITE = (1U << 21),
+	TRIGGER_FL_SAMPLE = (1U << 22),
 
 	TRIGGER_FL_CLEAR = (1U << 30), /* Reverse other flags when set */
 };
@@ -103,6 +104,7 @@ struct uftrace_trigger {
 	char color;
 	uint64_t time;
 	unsigned size;
+	uint64_t sample_rate;
 	enum filter_mode fmode;
 	enum filter_mode lmode;
 	enum trigger_read_type read;
@@ -116,6 +118,7 @@ struct uftrace_filter {
 	char *name;
 	uint64_t start;
 	uint64_t end;
+	uint64_t sample_count;
 	struct list_head args;
 	struct uftrace_trigger trigger;
 };
